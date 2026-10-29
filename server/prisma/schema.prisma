@@ -1,0 +1,17 @@
+// Prisma schema for Encra 3.0
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Models will be added here during feature development ──────────────────
+// The schema is intentionally empty at this stage.
+// Run `npm run db:generate` from the server workspace to generate the Prisma
+// client after adding models.
+// Run `npm run db:migrate` to apply migrations to a running PostgreSQL instance.

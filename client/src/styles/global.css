@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+/*
+ * Typography: Outfit
+ */
+
+/* ─── Design tokens ──────────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --color-base:           #050913;
+  --color-base-secondary: #0A1220;
+  --color-surface:        #0D1626;
+  --color-surface-raised: #111E30;
+
+  /* Text */
+  --color-text:           #F5F7FA;
+  --color-text-secondary: #A1ADBF;
+  --color-text-muted:     #8CA4C5;
+
+  /* Accent */
+  --color-accent:         #2997FF;
+  --color-accent-dim:     rgba(41, 151, 255, 0.12);
+
+  /* Borders */
+  --color-border:         #202B3D;
+  --color-border-subtle:  rgba(32, 43, 61, 0.7);
+
+  /* Success */
+  --color-success:        #36D6A0;
+
+  /* Font */
+  --font-sans: 'Outfit', system-ui, -apple-system, sans-serif;
+}
+
+/* ─── Base reset ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Focus ring ──────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; }
+::-webkit-scrollbar-track  { background: var(--color-base); }
+::-webkit-scrollbar-thumb  { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(41, 151, 255, 0.3); }
+
+/* ─── Typing caret ────────────────────────────────────────────────────────────── */
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.typing-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: middle;
+  border-radius: 1px;
+  animation: caret-blink 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-caret {
+    animation: none;
+  }
+}
+
+/* ─── Scroll indicator ────────────────────────────────────────────────────────── */
+@keyframes scroll-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(5px); }
+}
+
+.scroll-bounce {
+  animation: scroll-bounce 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-bounce {
+    animation: none;
+  }
+}
