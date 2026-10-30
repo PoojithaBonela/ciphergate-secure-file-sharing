@@ -2,8 +2,9 @@
  * Encra 3.0 Encrypted Package Upload Service
  *
  * Requests short-lived presigned PutObject URLs from the backend
- * and uploads the encrypted .encra package directly to S3.
  */
+
+import { buildApiUrl } from '@/config/api'
 
 export interface PresignResponse {
   status: 'success'
@@ -22,7 +23,7 @@ export interface UploadResult {
  * Only sends the package size and content type. Never sends passwords, keys, or file data.
  */
 export async function getPresignedUploadUrl(fileSize: number): Promise<PresignResponse> {
-  const response = await fetch('/api/uploads/presign', {
+  const response = await fetch(buildApiUrl('/api/uploads/presign'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -99,7 +100,7 @@ export async function uploadToS3(
  */
 export async function verifyS3Upload(objectKey: string): Promise<boolean> {
   try {
-    const response = await fetch('/api/uploads/verify', {
+    const response = await fetch(buildApiUrl('/api/uploads/verify'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

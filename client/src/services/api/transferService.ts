@@ -6,6 +6,8 @@
  * Never transmits passwords or encryption keys.
  */
 
+import { buildApiUrl } from '@/config/api'
+
 export const SEVEN_WORD_REGEX = /^[a-z]+( [a-z]+){6}$/
 
 /**
@@ -64,7 +66,7 @@ export interface LookupTransferResponse {
 export async function registerTransfer(
   params: RegisterTransferParams,
 ): Promise<RegisterTransferResponse> {
-  const response = await fetch('/api/transfers/register', {
+  const response = await fetch(buildApiUrl('/api/transfers/register'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -95,7 +97,7 @@ export async function registerTransfer(
 export async function lookupTransfer(
   sevenWordCode: string,
 ): Promise<TransferMetadata> {
-  const response = await fetch('/api/transfers/lookup', {
+  const response = await fetch(buildApiUrl('/api/transfers/lookup'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

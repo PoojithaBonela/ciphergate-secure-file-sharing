@@ -30,7 +30,7 @@ export async function connectDatabase(): Promise<void> {
     await mongoose.connect(uri, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 10000,
-      autoIndex: config.isDevelopment,
+      autoIndex: true,
     })
 
     console.log('[database] Successfully connected to MongoDB Atlas.')
@@ -40,6 +40,16 @@ export async function connectDatabase(): Promise<void> {
     const sanitized = sanitizeErrorMessage(rawMessage)
 
     console.error(`[database] Failed to connect to MongoDB: ${sanitized}`)
+    if (
+      sanitized.includes('timed out') ||
+      sanitized.includes('ETIMEDOUT') ||
+      sanitized.includes('querySrv') ||
+      sanitized.includes('ECONNREFUSED')
+    ) {
+      console.error(
+        '[database] DIAGNOSTIC: If this occurs on Render, check MongoDB Atlas -> Network Access -> IP Access List. Add 0.0.0.0/0 (Allow access from anywhere) so dynamic cloud container IPs are permitted.',
+      )
+    }
     throw new Error(`MongoDB connection failed: ${sanitized}`)
   }
 }
