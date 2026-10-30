@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import healthRouter from './health'
+import uploadsRouter from './uploads'
+import transfersRouter from './transfers'
 
 /**
  * Root API router.
@@ -8,5 +10,7 @@ import healthRouter from './health'
 const apiRouter = Router()
 
 apiRouter.use('/health', healthRouter)
+apiRouter.use('/uploads', uploadsRouter)
+apiRouter.use('/transfers', transfersRouter)
 
 export default apiRouter

@@ -18,6 +18,7 @@ import {
 
 export interface SecurityControlsState {
   accessLevel: 'standard' | 'verified'
+  sevenWordCode: string
   verificationMethod: 'email' | 'phone'
   verifiedEmail: string
   verifiedPhone: string
@@ -59,6 +60,55 @@ export default function SecurityControlsPanel({
   const [showAesTooltip, setShowAesTooltip] = useState(false)
   const [emailTouched, setEmailTouched] = useState(false)
   const [phoneTouched, setPhoneTouched] = useState(false)
+  const [secretCodeTouched, setSecretCodeTouched] = useState(false)
+
+  // 7-Word Secret Code validation
+  const secretCodeWordCount = useMemo(() => {
+    if (!controls.sevenWordCode.trim()) return 0
+    return controls.sevenWordCode.trim().split(/\s+/).filter(Boolean).length
+  }, [controls.sevenWordCode])
+
+  const isSevenWordCodeValid = useMemo(() => {
+    return /^[a-z]+( [a-z]+){6}$/.test(controls.sevenWordCode)
+  }, [controls.sevenWordCode])
+
+  const handleSecretCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const incoming = e.target.value
+
+    // Allow clearing
+    if (incoming === '') {
+      onChange((prev) => ({ ...prev, sevenWordCode: '' }))
+      return
+    }
+
+    // Reject uppercase letters (do NOT silently convert to lowercase)
+    if (/[A-Z]/.test(incoming)) {
+      return
+    }
+
+    // Only lowercase english letters a-z and single space allowed
+    if (/[^a-z ]/.test(incoming)) {
+      return
+    }
+
+    // Reject leading spaces
+    if (incoming.startsWith(' ')) {
+      return
+    }
+
+    // Reject consecutive spaces
+    if (incoming.includes('  ')) {
+      return
+    }
+
+    // Prevent an eighth word: if already 7 words and space is entered
+    const words = incoming.split(' ')
+    if (words.length > 7) {
+      return
+    }
+
+    onChange((prev) => ({ ...prev, sevenWordCode: incoming }))
+  }
 
   // Current time window for expiry
   const now = useMemo(() => new Date(), [])
@@ -157,7 +207,7 @@ export default function SecurityControlsPanel({
             {/* Status Indicator */}
             <div className="pl-12 sm:pl-0">
               <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-[#2997FF]/10 text-[#2997FF] border border-[#2997FF]/25">
-                {controls.accessLevel === 'standard' ? 'Password Only' : 'Password + OTP'}
+                {controls.accessLevel === 'standard' ? 'Password + 7-Word Code' : 'Password + 7-Word Code + OTP'}
               </span>
             </div>
           </div>
@@ -203,7 +253,7 @@ export default function SecurityControlsPanel({
               <div>
                 <p className="text-sm font-semibold text-[#F5F7FA]">Standard</p>
                 <p className="text-xs text-[#8CA4C5] mt-0.5">
-                  Password only
+                  Password + 7-word secret code
                 </p>
               </div>
             </div>
@@ -247,133 +297,209 @@ export default function SecurityControlsPanel({
               <div>
                 <p className="text-sm font-semibold text-[#F5F7FA]">Verified</p>
                 <p className="text-xs text-[#8CA4C5] mt-0.5">
-                  Password + one-time verification code
+                  Password + 7-word secret code + OTP
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Verified Configuration Drawer */}
-          {controls.accessLevel === 'verified' && (
-            <div className="mt-4 p-4 sm:p-5 rounded-xl bg-[#050913]/90 border border-[#202B3D] space-y-4 animate-in fade-in duration-200">
-              {/* Send verification code via */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-[#8CA4C5] mb-2.5">
-                  Send verification code via:
-                </p>
-
-                {/* Compact Segmented Control */}
-                <div className="inline-flex p-1 rounded-xl bg-[#0A1220] border border-[#202B3D]">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange((prev) => ({
-                        ...prev,
-                        verificationMethod: 'email',
-                      }))
-                    }
-                    className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      controls.verificationMethod === 'email'
-                        ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
-                        : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
+          {/* ── Seven-Word Secret Code Input Section (Required for both Standard & Verified) ── */}
+          <div className="mt-4 p-4 sm:p-5 rounded-xl bg-[#050913]/90 border border-[#202B3D] space-y-4 animate-in fade-in duration-200">
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label
+                  htmlFor="encra-seven-word-code"
+                  className="block text-xs font-semibold text-[#F5F7FA]"
+                >
+                  Seven-Word Secret Code <span className="text-[#2997FF]">*</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${
+                      isSevenWordCodeValid
+                        ? 'bg-teal-500/10 text-teal-400 border-teal-500/30'
+                        : 'bg-[#0A1220] text-[#8CA4C5] border-[#202B3D]'
                     }`}
                   >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Email</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange((prev) => ({
-                        ...prev,
-                        verificationMethod: 'phone',
-                      }))
-                    }
-                    className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      controls.verificationMethod === 'phone'
-                        ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
-                        : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
-                    }`}
-                  >
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>Phone / SMS</span>
-                  </button>
+                    {secretCodeWordCount}/7 words
+                  </span>
                 </div>
               </div>
 
-              {/* Dynamic Field */}
-              <div>
-                <label
-                  htmlFor="encra-verification-target"
-                  className="block text-xs font-semibold text-[#8CA4C5] mb-1.5"
-                >
-                  {controls.verificationMethod === 'email'
-                    ? "Recipient's email address *"
-                    : "Recipient's phone number *"}
-                </label>
+              <p className="text-xs text-[#8CA4C5] mb-2 leading-relaxed">
+                The recipient uses this phrase to find and download the transfer. The server stores only an HMAC-SHA-256 fingerprint, never the plaintext phrase.
+              </p>
 
-                {controls.verificationMethod === 'email' ? (
-                  <div>
-                    <input
-                      id="encra-verification-target"
-                      type="email"
-                      required
-                      value={controls.verifiedEmail}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        onChange((prev) => ({ ...prev, verifiedEmail: val }))
-                      }}
-                      onBlur={() => setEmailTouched(true)}
-                      placeholder="recipient@example.com"
-                      className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
-                        emailTouched && controls.verifiedEmail && !isEmailValid
-                          ? 'border-rose-500/80 focus:border-rose-500'
-                          : 'border-[#202B3D] focus:border-[#2997FF]'
-                      }`}
-                    />
-                    {emailTouched && controls.verifiedEmail && !isEmailValid && (
-                      <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        Please enter a valid email address (e.g. name@domain.com).
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      id="encra-verification-target"
-                      type="tel"
-                      required
-                      value={controls.verifiedPhone}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        onChange((prev) => ({ ...prev, verifiedPhone: val }))
-                      }}
-                      onBlur={() => setPhoneTouched(true)}
-                      placeholder="+91 98765 43210"
-                      className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
-                        phoneTouched && controls.verifiedPhone && !isPhoneValid
-                          ? 'border-rose-500/80 focus:border-rose-500'
-                          : 'border-[#202B3D] focus:border-[#2997FF]'
-                      }`}
-                    />
-                    {phoneTouched && controls.verifiedPhone && !isPhoneValid && (
-                      <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        Please enter a valid international telephone number with country code.
-                      </p>
-                    )}
-                  </div>
-                )}
+              <div className="relative">
+                <input
+                  id="encra-seven-word-code"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={controls.sevenWordCode}
+                  onChange={handleSecretCodeChange}
+                  onBlur={() => setSecretCodeTouched(true)}
+                  placeholder="e.g. winter orange velvet harbor canyon silver whisper"
+                  className={`w-full px-3.5 py-2.5 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/40 text-xs sm:text-sm font-mono tracking-wide focus:outline-none transition-colors ${
+                    isSevenWordCodeValid
+                      ? 'border-teal-500/60 focus:border-teal-400'
+                      : secretCodeTouched && controls.sevenWordCode && !isSevenWordCodeValid
+                        ? 'border-amber-500/60 focus:border-amber-400'
+                        : 'border-[#202B3D] focus:border-[#2997FF]'
+                  }`}
+                />
               </div>
 
-              {/* Helper text */}
-              <p className="text-[11px] text-[#8CA4C5] italic">
-                The sender specifies the recipient's verification destination.
-              </p>
+              {/* Validation Status Message */}
+              <div className="mt-2 text-[11px] flex items-center gap-1.5">
+                {isSevenWordCodeValid ? (
+                  <span className="text-teal-400 flex items-center gap-1 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    Valid 7-word secret code ready for registration.
+                  </span>
+                ) : secretCodeWordCount === 0 ? (
+                  <span className="text-[#8CA4C5]">
+                    Enter exactly 7 lowercase English words (a-z) separated by single spaces.
+                  </span>
+                ) : secretCodeWordCount < 7 ? (
+                  <span className="text-amber-400/90 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {7 - secretCodeWordCount} more word{7 - secretCodeWordCount > 1 ? 's' : ''} needed to reach exactly 7 words.
+                  </span>
+                ) : controls.sevenWordCode.endsWith(' ') ? (
+                  <span className="text-amber-400/90 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    Remove trailing space at the end of the phrase.
+                  </span>
+                ) : (
+                  <span className="text-amber-400/90 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    Ensure words contain only lowercase letters (a-z) without symbols or numbers.
+                  </span>
+                )}
+              </div>
             </div>
-          )}
+
+            {/* Verified OTP Configuration Drawer (Shown only when Verified access is chosen) */}
+            {controls.accessLevel === 'verified' && (
+              <div className="pt-4 border-t border-[#202B3D]/70 space-y-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[#8CA4C5] mb-2.5">
+                    Send OTP verification code via:
+                  </p>
+
+                  {/* Compact Segmented Control */}
+                  <div className="inline-flex p-1 rounded-xl bg-[#0A1220] border border-[#202B3D]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange((prev) => ({
+                          ...prev,
+                          verificationMethod: 'email',
+                        }))
+                      }
+                      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        controls.verificationMethod === 'email'
+                          ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
+                          : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
+                      }`}
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Email</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onChange((prev) => ({
+                          ...prev,
+                          verificationMethod: 'phone',
+                        }))
+                      }
+                      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        controls.verificationMethod === 'phone'
+                          ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
+                          : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
+                      }`}
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Phone / SMS</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dynamic Field */}
+                <div>
+                  <label
+                    htmlFor="encra-verification-target"
+                    className="block text-xs font-semibold text-[#8CA4C5] mb-1.5"
+                  >
+                    {controls.verificationMethod === 'email'
+                      ? "Recipient's email address *"
+                      : "Recipient's phone number *"}
+                  </label>
+
+                  {controls.verificationMethod === 'email' ? (
+                    <div>
+                      <input
+                        id="encra-verification-target"
+                        type="email"
+                        required
+                        value={controls.verifiedEmail}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          onChange((prev) => ({ ...prev, verifiedEmail: val }))
+                        }}
+                        onBlur={() => setEmailTouched(true)}
+                        placeholder="recipient@example.com"
+                        className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
+                          emailTouched && controls.verifiedEmail && !isEmailValid
+                            ? 'border-rose-500/80 focus:border-rose-500'
+                            : 'border-[#202B3D] focus:border-[#2997FF]'
+                        }`}
+                      />
+                      {emailTouched && controls.verifiedEmail && !isEmailValid && (
+                        <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          Please enter a valid email address (e.g. name@domain.com).
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        id="encra-verification-target"
+                        type="tel"
+                        required
+                        value={controls.verifiedPhone}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          onChange((prev) => ({ ...prev, verifiedPhone: val }))
+                        }}
+                        onBlur={() => setPhoneTouched(true)}
+                        placeholder="+91 98765 43210"
+                        className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
+                          phoneTouched && controls.verifiedPhone && !isPhoneValid
+                            ? 'border-rose-500/80 focus:border-rose-500'
+                            : 'border-[#202B3D] focus:border-[#2997FF]'
+                        }`}
+                      />
+                      {phoneTouched && controls.verifiedPhone && !isPhoneValid && (
+                        <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          Please enter a valid international telephone number with country code.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-[#8CA4C5] italic">
+                  Note: OTP delivery service integration is configured separately.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── CONTROL 2: Decryption Expiry Time ───────────────────────── */}

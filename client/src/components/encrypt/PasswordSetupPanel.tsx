@@ -28,7 +28,7 @@ export default function PasswordSetupPanel({
     empty: { text: 'text-[#8CA4C5]', label: 'None', bg: 'bg-[#202B3D]' },
     low: { text: 'text-rose-400', label: 'Low', bg: 'bg-rose-500' },
     medium: { text: 'text-amber-400', label: 'Medium', bg: 'bg-amber-400' },
-    high: { text: 'text-emerald-400', label: 'High', bg: 'bg-emerald-400' },
+    high: { text: 'text-teal-400', label: 'High', bg: 'bg-teal-400' },
   }
 
   const currentStrength = strengthColorMap[strength]
@@ -103,7 +103,7 @@ export default function PasswordSetupPanel({
                     isMismatch
                       ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
                       : isMatching
-                      ? 'border-emerald-500/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                      ? 'border-teal-500/80 focus:border-teal-500 focus:ring-1 focus:ring-teal-500'
                       : 'border-[#202B3D] focus:border-[#2997FF] focus:ring-1 focus:ring-[#2997FF]'
                   }`}
                 />
@@ -129,7 +129,7 @@ export default function PasswordSetupPanel({
                 </p>
               )}
               {isMatching && (
-                <p className="mt-2 text-xs text-emerald-400 flex items-center gap-1.5">
+                <p className="mt-2 text-xs text-teal-400 flex items-center gap-1.5">
                   <Check className="w-3.5 h-3.5 shrink-0" />
                   Passwords match perfectly.
                 </p>
@@ -187,7 +187,7 @@ export default function PasswordSetupPanel({
                 {/* Rule 1: Min 8 chars */}
                 <li className="flex items-center gap-2.5 transition-colors">
                   {hasMinLength ? (
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <div className="w-4 h-4 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
                       <Check className="w-3 h-3" strokeWidth={2.5} />
                     </div>
                   ) : (
@@ -201,7 +201,7 @@ export default function PasswordSetupPanel({
                 {/* Rule 2: Special character */}
                 <li className="flex items-center gap-2.5 transition-colors">
                   {hasSpecialChar ? (
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <div className="w-4 h-4 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
                       <Check className="w-3 h-3" strokeWidth={2.5} />
                     </div>
                   ) : (
@@ -215,7 +215,7 @@ export default function PasswordSetupPanel({
                 {/* Rule 3: Numbers and uppercase */}
                 <li className="flex items-center gap-2.5 transition-colors">
                   {hasNumberAndUpper ? (
-                    <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <div className="w-4 h-4 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
                       <Check className="w-3 h-3" strokeWidth={2.5} />
                     </div>
                   ) : (
