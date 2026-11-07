@@ -391,10 +391,10 @@ export default function SecureFileViewer({
                 <div className="text-center p-6 text-[#8CA4C5] text-xs sm:text-sm max-w-md">
                   <FileText className="w-10 h-10 text-[#2997FF] mx-auto mb-3" />
                   <p className="font-semibold text-[#F5F7FA] mb-1">
-                    Direct visual preview not supported for this format.
+                    Preview unavailable for this file format.
                   </p>
                   <p className="text-[12px] text-[#8CA4C5]">
-                    This file ({mimeType}) can be securely downloaded via the main decryption panel.
+                    Direct preview is not supported for this format ({mimeType}). In accordance with Encra security policies, downloading files to local storage is disabled.
                   </p>
                 </div>
               ) : isImage && objectUrl ? (

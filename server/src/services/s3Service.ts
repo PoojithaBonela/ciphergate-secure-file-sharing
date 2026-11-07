@@ -4,6 +4,8 @@ import {
   HeadObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  ListObjectVersionsCommand,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { randomUUID } from 'node:crypto'
@@ -102,22 +104,85 @@ export async function generatePresignedDownloadUrl(objectKey: string): Promise<s
 }
 
 /**
- * Deletes an object from S3. Used to clean up orphaned objects if transfer registration fails.
+ * Permanently deletes an object and all its versions from S3.
+ * Handles both versioned and non-versioned buckets cleanly.
+ * Returns true if successfully deleted (or already absent).
+ * Throws on actual AWS error to permit safe retry tracking.
  */
-export async function deleteS3Object(objectKey: string): Promise<void> {
+export async function deleteS3ObjectPermanently(objectKey: string): Promise<boolean> {
   if (!/^encra-[a-f0-9-]+\.encra$/.test(objectKey)) {
-    return
+    return true
   }
 
+  if (!config.aws.bucket) {
+    throw new Error('S3 bucket configuration is missing.')
+  }
+
+  // 1. Attempt version-aware deletion if bucket versioning is enabled
+  try {
+    const listVersions = new ListObjectVersionsCommand({
+      Bucket: config.aws.bucket,
+      Prefix: objectKey,
+    })
+    const versionsResponse = await s3Client.send(listVersions)
+
+    const itemsToDelete: { Key: string; VersionId?: string }[] = []
+
+    if (versionsResponse.Versions && versionsResponse.Versions.length > 0) {
+      for (const v of versionsResponse.Versions) {
+        if (v.Key === objectKey && v.VersionId) {
+          itemsToDelete.push({ Key: objectKey, VersionId: v.VersionId })
+        }
+      }
+    }
+
+    if (versionsResponse.DeleteMarkers && versionsResponse.DeleteMarkers.length > 0) {
+      for (const m of versionsResponse.DeleteMarkers) {
+        if (m.Key === objectKey && m.VersionId) {
+          itemsToDelete.push({ Key: objectKey, VersionId: m.VersionId })
+        }
+      }
+    }
+
+    if (itemsToDelete.length > 0) {
+      await s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: config.aws.bucket,
+          Delete: { Objects: itemsToDelete },
+        }),
+      )
+      return true
+    }
+  } catch (_versionErr: unknown) {
+    // If ListObjectVersions is not supported, bucket has no versioning, or AccessDenied,
+    // continue to standard DeleteObject below.
+  }
+
+  // 2. Standard single-object deletion (for non-versioned buckets or fallback)
   try {
     const command = new DeleteObjectCommand({
       Bucket: config.aws.bucket,
       Key: objectKey,
     })
     await s3Client.send(command)
-  } catch (err) {
-    // Log safe warning without leaking sensitive keys
-    console.warn(`[s3] Warning: Failed to clean up orphaned S3 object: ${objectKey}`)
+    return true
+  } catch (err: unknown) {
+    const awsError = err as { name?: string; message?: string }
+    if (awsError.name === 'NoSuchKey' || awsError.name === 'NotFound') {
+      return true
+    }
+    throw new Error(`S3 object deletion failed: ${awsError.message ?? 'Unknown error'}`)
+  }
+}
+
+/**
+ * Backward compatibility wrapper. Deletes an object safely without crashing callers.
+ */
+export async function deleteS3Object(objectKey: string): Promise<void> {
+  try {
+    await deleteS3ObjectPermanently(objectKey)
+  } catch {
+    console.warn(`[s3] Warning: Failed to clean up S3 object: ${objectKey}`)
   }
 }
 

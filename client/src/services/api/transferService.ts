@@ -34,12 +34,21 @@ export interface RegisterTransferParams {
   originalFileName: string
   mimeType: string
   fileSize: number
+  expiryMinutes?: number | null
   expiresAt?: string | null
+  locationEnabled?: boolean
+  location?: {
+    latitude: number
+    longitude: number
+    radiusKm: number
+    locationName: string
+  } | null
 }
 
 export interface RegisterTransferResponse {
   status: 'success'
   transferId: string
+  expiresAt: string
   message: string
 }
 
@@ -50,12 +59,34 @@ export interface TransferMetadata {
   fileSize: number
   createdAt: string
   expiresAt?: string | null
+  locationRequired?: boolean
+  radiusKm?: number
+  locationName?: string
+  downloadUrl?: string
+}
+
+export interface VerifyLocationParams {
+  transferId: string
+  latitude: number
+  longitude: number
+}
+
+export interface VerifyLocationResponse {
+  status: 'success'
+  authorized: boolean
+  authToken: string
   downloadUrl: string
+  message: string
 }
 
 export interface LookupTransferResponse {
   status: 'success'
   transfer: TransferMetadata
+}
+
+export interface ConsumeTransferResponse {
+  status: 'success'
+  message: string
 }
 
 /**
@@ -113,6 +144,11 @@ export async function lookupTransfer(
         data.message || 'Too many lookup attempts. Please wait a minute and try again.',
       )
     }
+    if (response.status === 410) {
+      throw new Error(
+        data.message || 'This transfer has expired and is no longer available.',
+      )
+    }
     if (response.status === 404) {
       throw new Error(
         data.message || 'Transfer not found or has expired. Please check your secret code.',
@@ -122,9 +158,66 @@ export async function lookupTransfer(
   }
 
   const result = data as LookupTransferResponse
-  if (!result.transfer || !result.transfer.downloadUrl) {
+  if (!result.transfer) {
     throw new Error('Invalid response received from lookup service.')
   }
 
   return result.transfer
+}
+
+/**
+ * Submits the receiver's current coordinates for backend Haversine distance verification.
+ * If within the permitted radius, returns a short-lived signed authorization token
+ * and authorized S3 retrieval URL.
+ * Does not permanently save or log receiver coordinates.
+ */
+export async function verifyReceiverLocation(
+  params: VerifyLocationParams,
+): Promise<VerifyLocationResponse> {
+  const response = await fetch(buildApiUrl('/api/transfers/verify-location'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(params),
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error(
+        data.message ||
+          `Access denied. You are outside the permitted geographic boundary for this file transfer.`,
+      )
+    }
+    if (response.status === 410) {
+      throw new Error(data.message || 'This transfer has expired and is no longer available.')
+    }
+    throw new Error(data.message || `Location verification failed (HTTP ${response.status}).`)
+  }
+
+  return data as VerifyLocationResponse
+}
+
+/**
+ * Informs the backend that client-side decryption has completed successfully,
+ * immediately invalidating the transfer and permanently destroying the encrypted file in S3.
+ */
+export async function consumeTransfer(transferId: string): Promise<ConsumeTransferResponse> {
+  const response = await fetch(buildApiUrl('/api/transfers/consume'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ transferId }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.message || `Transfer cleanup notification failed (HTTP ${response.status}).`)
+  }
+
+  return data as ConsumeTransferResponse
 }

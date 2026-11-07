@@ -107,3 +107,23 @@ body {
     animation: none;
   }
 }
+
+/* ─── Leaflet OpenStreetMap Dark Mode Tile Styling ───────────────────────────── */
+.leaflet-tile-pane {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+
+.leaflet-container {
+  background: #050913 !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(5, 9, 19, 0.85) !important;
+  color: #8CA4C5 !important;
+  font-size: 10px !important;
+}
+
+.leaflet-control-attribution a {
+  color: #2997FF !important;
+}
+

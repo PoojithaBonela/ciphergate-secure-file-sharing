@@ -11,10 +11,10 @@ import {
   Info,
   Mail,
   MessageSquare,
-  Search,
   Smartphone,
   AlertCircle,
 } from 'lucide-react'
+import InteractiveLocationPicker from './InteractiveLocationPicker'
 
 export interface SecurityControlsState {
   accessLevel: 'standard' | 'verified'
@@ -27,6 +27,9 @@ export interface SecurityControlsState {
   locationEnabled: boolean
   locationQuery: string
   radiusKm: number
+  latitude?: number
+  longitude?: number
+  locationName?: string
   cameraCheckEnabled: boolean
   cameraConsentChecked: boolean
   notificationsEnabled: boolean
@@ -145,7 +148,13 @@ export default function SecurityControlsPanel({
 
   // Helper toggle
   const toggleRow = (row: 'expiry' | 'location' | 'camera' | 'notifications') => {
-    setExpandedRow((curr) => (curr === row ? null : row))
+    setExpandedRow((curr) => {
+      const next = curr === row ? null : row
+      if (row === 'location' && next === 'location') {
+        onChange((prev) => ({ ...prev, locationEnabled: true }))
+      }
+      return next
+    })
   }
 
   // Set quick expiry presets
@@ -327,7 +336,7 @@ export default function SecurityControlsPanel({
               </div>
 
               <p className="text-xs text-[#8CA4C5] mb-2 leading-relaxed">
-                The recipient uses this phrase to find and download the transfer. The server stores only an HMAC-SHA-256 fingerprint, never the plaintext phrase.
+                The recipient uses this phrase to find and access the transfer. The server stores only an HMAC-SHA-256 fingerprint, never the plaintext phrase.
               </p>
 
               <div className="relative">
@@ -692,81 +701,26 @@ export default function SecurityControlsPanel({
             </div>
           </div>
 
-          {/* Expandable Location Details Drawer */}
+          {/* Expandable Location Details Drawer with Interactive Leaflet Map */}
           {expandedRow === 'location' && controls.locationEnabled && (
             <div className="mt-4 p-4 sm:p-5 rounded-xl bg-[#050913]/90 border border-[#202B3D] space-y-4">
-              {/* Search field */}
-              <div>
-                <label className="block text-xs font-semibold text-[#8CA4C5] mb-1.5">
-                  Search Target Location
-                </label>
-                <div className="relative">
-                  <Search className="w-4 h-4 text-[#8CA4C5] absolute left-3 top-3" />
-                  <input
-                    type="text"
-                    value={controls.locationQuery}
-                    onChange={(e) =>
-                      onChange((prev) => ({
-                        ...prev,
-                        locationQuery: e.target.value,
-                      }))
-                    }
-                    placeholder="Enter city, address or coordinates (e.g. London, UK)..."
-                    className="w-full pl-9 pr-4 py-2 rounded-lg bg-[#0A1220] border border-[#202B3D] text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none focus:border-[#2997FF]"
-                  />
-                </div>
-              </div>
-
-              {/* Radius selector */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                <label className="text-xs font-semibold text-[#8CA4C5]">
-                  Permitted Radius:
-                </label>
-                <div className="flex items-center gap-2">
-                  {[0.5, 1, 5, 25, 50].map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() =>
-                        onChange((prev) => ({ ...prev, radiusKm: r }))
-                      }
-                      className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
-                        controls.radiusKm === r
-                          ? 'bg-[#2997FF]/20 text-[#2997FF] border-[#2997FF]/50 font-bold'
-                          : 'bg-[#0A1220] text-[#A1ADBF] border-[#202B3D] hover:bg-[#111E30]'
-                      }`}
-                    >
-                      {r >= 1 ? `${r} km` : `${r * 1000} m`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Map Selection Placeholder with cybernetic grid */}
-              <div className="relative h-44 rounded-xl border border-[#202B3D] bg-[#0A1220] overflow-hidden flex flex-col items-center justify-center p-4 text-center">
-                <div
-                  className="absolute inset-0 opacity-15 pointer-events-none"
-                  style={{
-                    backgroundImage:
-                      'radial-gradient(#2997FF 1px, transparent 1px)',
-                    backgroundSize: '16px 16px',
-                  }}
-                />
-
-                <div className="relative z-10 w-12 h-12 rounded-full bg-[#2997FF]/15 border border-[#2997FF]/35 flex items-center justify-center text-[#2997FF] shadow-[0_0_20px_rgba(41,151,255,0.3)] mb-2 animate-pulse">
-                  <MapPin className="w-6 h-6" strokeWidth={1.75} />
-                </div>
-
-                <p className="text-xs font-semibold text-[#F5F7FA] relative z-10">
-                  {controls.locationQuery || 'Location Boundary Active'}
-                </p>
-                <p className="text-[11px] text-[#8CA4C5] relative z-10">
-                  Allowed radius: {controls.radiusKm} km around target coordinates
-                </p>
-                <span className="mt-2 text-[10px] text-[#2997FF] px-2 py-0.5 rounded-full bg-[#2997FF]/10 border border-[#2997FF]/25">
-                  Ready for Google Maps API integration
-                </span>
-              </div>
+              <InteractiveLocationPicker
+                latitude={controls.latitude ?? 51.5074}
+                longitude={controls.longitude ?? -0.1278}
+                radiusKm={controls.radiusKm || 5}
+                locationName={controls.locationName || controls.locationQuery || ''}
+                onChange={(lat, lng, radiusKm, name) => {
+                  onChange((prev) => ({
+                    ...prev,
+                    locationEnabled: true,
+                    latitude: lat,
+                    longitude: lng,
+                    radiusKm,
+                    locationQuery: name,
+                    locationName: name,
+                  }))
+                }}
+              />
 
               <p className="text-[11px] text-[#8CA4C5] italic">
                 Note: Browser geolocation may be inaccurate and is not tamper-proof.

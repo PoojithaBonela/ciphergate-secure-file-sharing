@@ -1,7 +1,20 @@
 import { Schema, model, Document } from 'mongoose'
 import { randomBytes } from 'node:crypto'
 
-export type TransferStatus = 'pending' | 'uploaded' | 'expired' | 'deleted'
+export type TransferStatus =
+  | 'active'
+  | 'uploaded'
+  | 'consumed'
+  | 'expired'
+  | 'pending_cleanup'
+  | 'deleted'
+
+export type CleanupStatus =
+  | 'none'
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
 
 /**
  * Transfer document interface.
@@ -9,7 +22,7 @@ export type TransferStatus = 'pending' | 'uploaded' | 'expired' | 'deleted'
  */
 export interface ITransfer extends Document {
   transferId: string
-  lookupFingerprint: string
+  lookupFingerprint: string | null
   s3ObjectKey: string
   originalFileName: string
   originalFilename?: string
@@ -17,8 +30,20 @@ export interface ITransfer extends Document {
   fileSize: number
   encryptedPackageSize?: number
   status: TransferStatus
+  locationEnabled: boolean
+  encryptedLocation?: {
+    version: number
+    iv: string
+    authTag: string
+    ciphertext: string
+  } | null
   createdAt: Date
-  expiresAt?: Date | null
+  expiresAt: Date
+  consumedAt?: Date | null
+  cleanupStatus: CleanupStatus
+  cleanupAttempts: number
+  lastCleanupAttemptAt?: Date | null
+  cleanupError?: string | null
 }
 
 const transferSchema = new Schema<ITransfer>(
@@ -33,8 +58,8 @@ const transferSchema = new Schema<ITransfer>(
     },
     lookupFingerprint: {
       type: String,
-      required: true,
-      unique: true,
+      default: null,
+      sparse: true,
       index: true,
       // 64-character hex string from HMAC-SHA-256
       match: [/^[a-f0-9]{64}$/, 'Invalid lookup fingerprint format.'],
@@ -66,14 +91,54 @@ const transferSchema = new Schema<ITransfer>(
     status: {
       type: String,
       required: true,
-      enum: ['pending', 'uploaded', 'expired', 'deleted'],
-      default: 'uploaded',
+      enum: ['active', 'uploaded', 'consumed', 'expired', 'pending_cleanup', 'deleted'],
+      default: 'active',
       index: true,
     },
     expiresAt: {
       type: Date,
-      default: null,
+      required: true,
+      default: () => new Date(Date.now() + 24 * 60 * 60 * 1000),
       index: true,
+    },
+    consumedAt: {
+      type: Date,
+      default: null,
+    },
+    locationEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
+      index: true,
+    },
+    encryptedLocation: {
+      type: {
+        version: { type: Number, default: 1 },
+        iv: { type: String, required: true },
+        authTag: { type: String, required: true },
+        ciphertext: { type: String, required: true },
+      },
+      default: null,
+    },
+    cleanupStatus: {
+      type: String,
+      required: true,
+      enum: ['none', 'pending', 'in_progress', 'completed', 'failed'],
+      default: 'none',
+      index: true,
+    },
+    cleanupAttempts: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    lastCleanupAttemptAt: {
+      type: Date,
+      default: null,
+    },
+    cleanupError: {
+      type: String,
+      default: null,
     },
   },
   {
@@ -83,6 +148,10 @@ const transferSchema = new Schema<ITransfer>(
     toObject: { virtuals: true },
   },
 )
+
+// Compound indexes for high-throughput expiry and cleanup queries
+transferSchema.index({ expiresAt: 1, status: 1 })
+transferSchema.index({ cleanupStatus: 1, cleanupAttempts: 1 })
 
 // Virtual compatibility aliases
 transferSchema.virtual('originalFilename').get(function (this: ITransfer) {

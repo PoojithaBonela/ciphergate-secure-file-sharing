@@ -21,7 +21,7 @@ const STEPS: Step[] = [
     Icon: SlidersHorizontal,
     title: 'Set your rules',
     description:
-      'Set a password, configure location restrictions, enable optional camera checks, and choose whether recipients can view or download files.',
+      'Set a password, configure access rules, and protect transfers with zero-download secure in-browser viewing.',
   },
   {
     step: '03 / ACCESS',

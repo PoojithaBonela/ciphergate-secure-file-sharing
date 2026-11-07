@@ -4,6 +4,7 @@ import encraImg3 from '@/assets/encraimg3.jpeg'
 import encraImg4 from '@/assets/encraimg4.jpeg'
 import encraImg5 from '@/assets/encraimg5.jpeg'
 
+// Encra 3.0 Key Features Showcase
 interface Feature {
   id: string
   number: string
@@ -26,7 +27,7 @@ const FEATURES: Feature[] = [
     number: '02 /',
     title: 'Location-Based Access',
     description:
-      'Choose an allowed location on Google Maps and set a permitted radius. Encra checks the recipient’s location before granting access.',
+      'Choose an allowed location on an interactive map and set a permitted radius. Encra verifies the recipient\'s location before granting access.',
     image: encraImg2,
   },
   {

@@ -1,6 +1,7 @@
 import { createApp } from './app'
 import { config } from './config/env'
 import { connectDatabase, disconnectDatabase } from './config/db'
+import { startCleanupScheduler, stopCleanupScheduler } from './services/cleanupScheduler'
 
 /**
  * Entry point — connects to MongoDB first, then starts the HTTP server.
@@ -17,10 +18,14 @@ async function startServer(): Promise<void> {
       console.log(`[server] Encra API running on http://localhost:${config.port}`)
       console.log(`[server] Environment: ${config.nodeEnv}`)
       console.log(`[server] CORS origin:  ${config.clientUrl}`)
+
+      // Start the 5-minute background cleanup scheduler
+      startCleanupScheduler()
     })
 
     const shutdown = (signal: string) => {
       console.log(`\n[server] ${signal} received — shutting down gracefully.`)
+      stopCleanupScheduler()
       server.close(async () => {
         console.log('[server] HTTP server closed.')
         await disconnectDatabase()

@@ -33,6 +33,7 @@ export interface EncraPackage {
 export interface EncryptionResult {
   packageBlob: Blob
   encryptedPackage: EncraPackage
+  packageFilename: string
   downloadFilename: string
   originalSize: number
   encryptedSize: number
@@ -79,7 +80,7 @@ export function base64ToUint8Array(base64: string): Uint8Array {
  *
  * @param file The file to encrypt (max 10MB)
  * @param password The secret passphrase chosen by the sender
- * @returns An EncryptionResult containing the downloadable .encra package
+ * @returns An EncryptionResult containing the encrypted .encra package
  */
 export async function encryptFile(
   file: File,
@@ -171,33 +172,19 @@ export async function encryptFile(
   const packageJson = JSON.stringify(encraPackage, null, 2)
   const packageBlob = new Blob([packageJson], { type: 'application/json' })
 
-  const downloadFilename = `${file.name}.encra`
+  const packageFilename = `${file.name}.encra`
   const endTime = performance.now()
 
   return {
     packageBlob,
     encryptedPackage: encraPackage,
-    downloadFilename,
+    packageFilename,
+    downloadFilename: packageFilename,
     originalSize: file.size,
     encryptedSize: packageBlob.size,
     algorithm: `AES-256-GCM (PBKDF2 600k rounds)`,
     durationMs: Math.round(endTime - startTime),
   }
-}
-
-/**
- * Triggers a browser file download for a generated .encra package.
- */
-export function downloadEncraFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  // Allow browser download manager sufficient time to acquire the stream before revocation
-  setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
 export interface DecryptionResult {
@@ -310,18 +297,4 @@ export async function decryptEncraPackage(
   }
 }
 
-/**
- * Triggers a browser file download for a decrypted file.
- */
-export function downloadDecryptedFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  // Allow browser download manager sufficient time to acquire the stream before revocation
-  setTimeout(() => URL.revokeObjectURL(url), 60000)
-}
 

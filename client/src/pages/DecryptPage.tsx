@@ -3,7 +3,6 @@ import {
   Lock,
   ShieldCheck,
   CheckCircle2,
-  Download,
   RotateCcw,
   AlertCircle,
   KeyRound,
@@ -11,14 +10,24 @@ import {
   EyeOff,
   FileCheck,
   ShieldAlert,
+  MapPin,
+  Navigation,
+  Compass,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import SecureFileViewer from '@/components/decrypt/SecureFileViewer'
-import { lookupTransfer, isValidSevenWordCode } from '@/services/api/transferService'
+import {
+  lookupTransfer,
+  consumeTransfer,
+  verifyReceiverLocation,
+  isValidSevenWordCode,
+  TransferMetadata,
+} from '@/services/api/transferService'
 import {
   decryptEncraPackage,
-  downloadDecryptedFile,
   DecryptionResult,
 } from '@/services/crypto/encryption'
 
@@ -45,6 +54,13 @@ export default function DecryptPage() {
   const [isSecureViewerOpen, setIsSecureViewerOpen] = useState(false)
   const [terminationReason, setTerminationReason] = useState<string | null>(null)
 
+  // Location Verification State (Strict transfer-specific authorization)
+  const [pendingLocationTransfer, setPendingLocationTransfer] = useState<TransferMetadata | null>(null)
+  const [isVerifyingLocation, setIsVerifyingLocation] = useState(false)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [verifiedTransferId, setVerifiedTransferId] = useState<string | null>(null)
+  const [authorizedDownloadUrl, setAuthorizedDownloadUrl] = useState<string | null>(null)
+
   // Word count & validity
   const wordCount = useMemo(() => {
     if (!sevenWordCode.trim()) return 0
@@ -60,6 +76,14 @@ export default function DecryptPage() {
   // Controlled 7-word input change handler
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const incoming = e.target.value
+
+    // Invalidate prior authorization when secret code changes
+    setPendingLocationTransfer(null)
+    setVerifiedTransferId(null)
+    setAuthorizedDownloadUrl(null)
+    setLocationError(null)
+    setErrorMessage(null)
+    setDecryptedResult(null)
 
     if (incoming === '') {
       setSevenWordCode('')
@@ -95,29 +119,18 @@ export default function DecryptPage() {
     setSevenWordCode(incoming)
   }
 
-  // Full Decryption Flow:
-  // 1. Validate credentials locally
-  // 2. Submit phrase to /api/transfers/lookup
-  // 3. Receive short-lived presigned downloadUrl
-  // 4. Fetch encrypted .encra package from S3
-  // 5. Decrypt client-side using Web Crypto API + Password
-  // 6. Reconstruct original file blob
-  const handleDecrypt = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!isReadyToDecrypt || isSubmitting) return
-
-    setErrorMessage(null)
-    setDecryptedResult(null)
+  // Core client-side decryption executor
+  const executePackageDecryption = async (
+    transferId: string,
+    downloadUrl: string,
+  ) => {
     setIsSubmitting(true)
-    setDecryptStage('Locating transfer with secret code...')
+    setErrorMessage(null)
+    setDecryptStage('Retrieving encrypted package...')
 
     try {
-      // Step 1: Lookup transfer by 7-word phrase
-      const transferMetadata = await lookupTransfer(sevenWordCode)
-
-      // Step 2: Download the encrypted package
-      setDecryptStage('Retrieving encrypted package...')
-      const response = await fetch(transferMetadata.downloadUrl)
+      // Step 2: Retrieve the encrypted package into browser memory
+      const response = await fetch(downloadUrl)
       if (!response.ok) {
         throw new Error('Unable to retrieve the encrypted file package from storage.')
       }
@@ -127,7 +140,13 @@ export default function DecryptPage() {
       setDecryptStage('Deriving key (600,000 rounds) & decrypting...')
       const result = await decryptEncraPackage(encraPackageText, password)
 
+      // Step 4: Successful decryption triggers immediate consumption & cloud cleanup
+      void consumeTransfer(transferId).catch((cleanupErr) => {
+        console.warn('[decrypt] Background transfer consumption notice:', cleanupErr)
+      })
+
       setDecryptedResult(result)
+      setPendingLocationTransfer(null)
     } catch (err: unknown) {
       const msg =
         err instanceof Error
@@ -140,9 +159,107 @@ export default function DecryptPage() {
     }
   }
 
-  const handleDownloadDecrypted = () => {
-    if (!decryptedResult) return
-    downloadDecryptedFile(decryptedResult.decryptedBlob, decryptedResult.filename)
+  // Full Decryption Flow:
+  // 1. Validate credentials locally
+  // 2. Submit phrase to /api/transfers/lookup
+  // 3. If location required, prompt for one-time location verification
+  // 4. Otherwise, fetch encrypted .encra package from S3 and decrypt
+  const handleDecrypt = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isReadyToDecrypt || isSubmitting) return
+
+    setErrorMessage(null)
+    setLocationError(null)
+    setDecryptedResult(null)
+    setIsSubmitting(true)
+    setDecryptStage('Locating transfer with secret code...')
+
+    try {
+      // Step 1: Lookup transfer by 7-word phrase
+      const transferMetadata = await lookupTransfer(sevenWordCode)
+
+      // If location access is required, pause for receiver location verification
+      if (transferMetadata.locationRequired && verifiedTransferId !== transferMetadata.transferId) {
+        setPendingLocationTransfer(transferMetadata)
+        setIsSubmitting(false)
+        setDecryptStage(null)
+        return
+      }
+
+      const downloadUrl = transferMetadata.locationRequired
+        ? authorizedDownloadUrl
+        : transferMetadata.downloadUrl
+
+      if (!downloadUrl) {
+        throw new Error('Transfer authorization failed: download URL was not provided.')
+      }
+
+      await executePackageDecryption(transferMetadata.transferId, downloadUrl)
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Unable to locate transfer. Check your 7-word secret code.'
+      setErrorMessage(msg)
+      setIsSubmitting(false)
+      setDecryptStage(null)
+    }
+  }
+
+  // Receiver Location Verification (Executed strictly once before releasing ciphertext)
+  const handleVerifyLocation = () => {
+    if (!pendingLocationTransfer) return
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setLocationError('Browser geolocation is not supported on this device.')
+      return
+    }
+
+    setIsVerifyingLocation(true)
+    setLocationError(null)
+
+    const currentTransfer = pendingLocationTransfer
+    const targetTransferId = currentTransfer.transferId
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const res = await verifyReceiverLocation({
+            transferId: targetTransferId,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          })
+
+          setVerifiedTransferId(targetTransferId)
+          setAuthorizedDownloadUrl(res.downloadUrl)
+          setIsVerifyingLocation(false)
+
+          // Decrypt file immediately upon authorized location verification
+          await executePackageDecryption(targetTransferId, res.downloadUrl)
+        } catch (err: unknown) {
+          setIsVerifyingLocation(false)
+          setVerifiedTransferId(null)
+          setAuthorizedDownloadUrl(null)
+          const msg = err instanceof Error ? err.message : 'Location verification failed.'
+          setLocationError(msg)
+        }
+      },
+      (geoErr) => {
+        setIsVerifyingLocation(false)
+        setVerifiedTransferId(null)
+        setAuthorizedDownloadUrl(null)
+        let msg = 'Unable to determine your location.'
+        if (geoErr.code === geoErr.PERMISSION_DENIED) {
+          msg =
+            'Location permission was denied. Please allow location access in your browser settings to access this transfer.'
+        } else if (geoErr.code === geoErr.POSITION_UNAVAILABLE) {
+          msg = 'Location information is currently unavailable. Please check your device location settings.'
+        } else if (geoErr.code === geoErr.TIMEOUT) {
+          msg = 'The location verification request timed out. Please try again.'
+        }
+        setLocationError(msg)
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    )
   }
 
   const handleOpenSecureViewer = () => {
@@ -161,8 +278,13 @@ export default function DecryptPage() {
     setPassword('')
     setShowPassword(false)
     setErrorMessage(null)
+    setLocationError(null)
     setTerminationReason(null)
     setDecryptedResult(null)
+    setPendingLocationTransfer(null)
+    setVerifiedTransferId(null)
+    setAuthorizedDownloadUrl(null)
+    setIsVerifyingLocation(false)
     setIsSecureViewerOpen(false)
     setCodeTouched(false)
   }
@@ -240,8 +362,110 @@ export default function DecryptPage() {
           </div>
         )}
 
-        {/* ── CONDITIONAL RENDER: SUCCESS OR FORM ─────────────────────── */}
-        {decryptedResult ? (
+        {/* ── CONDITIONAL RENDER: LOCATION GATE, SUCCESS, OR FORM ──── */}
+        {pendingLocationTransfer && !decryptedResult ? (
+          /* ── LOCATION VERIFICATION GATE ────────────────────────────── */
+          <div className="w-full rounded-2xl bg-[#0A1220]/90 backdrop-blur-md border border-[#2997FF]/30 p-6 sm:p-8 shadow-[0_0_40px_rgba(41,151,255,0.1)] animate-in fade-in duration-300">
+            {/* Header */}
+            <div className="flex items-center gap-3.5 pb-5 border-b border-[#202B3D]">
+              <div className="w-12 h-12 rounded-xl bg-[#2997FF]/15 border border-[#2997FF]/30 text-[#2997FF] flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(41,151,255,0.25)]">
+                <MapPin className="w-6 h-6" strokeWidth={2} />
+              </div>
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-[#F5F7FA]">
+                  Location Verification Required
+                </h2>
+                <p className="text-xs text-[#8CA4C5] mt-0.5">
+                  The sender has restricted access to a specific geographic boundary.
+                </p>
+              </div>
+            </div>
+
+            {/* Transfer Info Summary */}
+            <div className="my-5 p-4 rounded-xl bg-[#050913]/90 border border-[#202B3D] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#8CA4C5]">File:</span>
+                <span className="text-[#F5F7FA] font-semibold truncate ml-2">{pendingLocationTransfer.originalFileName}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#8CA4C5]">Permitted Radius:</span>
+                <span className="text-[#2997FF] font-medium">
+                  {(pendingLocationTransfer.radiusKm || 5) >= 1
+                    ? `${pendingLocationTransfer.radiusKm || 5} km`
+                    : `${(pendingLocationTransfer.radiusKm || 0.5) * 1000} m`
+                  }
+                </span>
+              </div>
+            </div>
+
+            {/* Explanation */}
+            <div className="p-3.5 rounded-xl bg-[#2997FF]/5 border border-[#2997FF]/15 flex items-start gap-3 text-xs text-[#8CA4C5] mb-5">
+              <Compass className="w-5 h-5 text-[#2997FF] shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                <p>
+                  Your browser will request permission to access your device's GPS coordinates. This check is performed <strong className="text-[#F5F7FA]">once</strong> — your location will not be tracked during viewing.
+                </p>
+                <p className="mt-1.5 text-[11px] text-[#8CA4C5]/70">
+                  Note: Browser geolocation can be spoofed and does not guarantee physical presence.
+                </p>
+              </div>
+            </div>
+
+            {/* Location Verification Error */}
+            {locationError && (
+              <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-300 text-xs animate-in fade-in duration-200">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-rose-200">Location Verification Failed</p>
+                  <p className="text-xs text-rose-300/90 mt-0.5 leading-relaxed">{locationError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button
+                type="button"
+                onClick={handleVerifyLocation}
+                disabled={isVerifyingLocation}
+                className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white text-xs sm:text-sm font-semibold tracking-wide transition-all shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isVerifyingLocation ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying Location...</span>
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="w-4 h-4" />
+                    <span>Verify My Location</span>
+                  </>
+                )}
+              </button>
+
+              {locationError && (
+                <button
+                  type="button"
+                  onClick={handleVerifyLocation}
+                  disabled={isVerifyingLocation}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#0A1220] hover:bg-[#111E30] border border-[#202B3D] text-[#8CA4C5] hover:text-[#F5F7FA] text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Try Again</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleReset}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#0A1220] hover:bg-[#111E30] border border-[#202B3D] text-[#8CA4C5] hover:text-[#F5F7FA] text-xs sm:text-sm font-medium transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Cancel</span>
+              </button>
+            </div>
+          </div>
+        ) : decryptedResult ? (
           /* ── DECRYPTION SUCCESS CARD ────────────────────────────────── */
           <div className="w-full rounded-2xl bg-[#0A1220]/90 backdrop-blur-md border border-teal-500/30 p-6 sm:p-8 shadow-[0_0_40px_rgba(20,184,166,0.12)] animate-in fade-in duration-300">
             <div className="flex items-center gap-3.5 pb-5 border-b border-[#202B3D]">
@@ -290,20 +514,11 @@ export default function DecryptPage() {
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
               <button
                 type="button"
-                onClick={handleDownloadDecrypted}
+                onClick={handleOpenSecureViewer}
                 className="w-full sm:flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white text-xs sm:text-sm font-semibold tracking-wide transition-all shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.98] cursor-pointer"
               >
-                <Download className="w-4 h-4" />
-                <span>Save Decrypted File</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleOpenSecureViewer}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-[#0A1220] hover:bg-[#111E30] border border-[#202B3D] hover:border-[#2997FF]/50 text-[#8CA4C5] hover:text-[#2997FF] text-xs sm:text-sm font-medium transition-colors cursor-pointer"
-              >
                 <Eye className="w-4 h-4" />
-                <span>Secure Preview</span>
+                <span>Open Secure Viewer</span>
               </button>
 
               <button
@@ -330,11 +545,10 @@ export default function DecryptPage() {
                     Seven-Word Secret Code
                   </label>
                   <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${
-                      isCodeValid
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${isCodeValid
                         ? 'bg-teal-500/10 text-teal-400 border-teal-500/30'
                         : 'bg-[#050913] text-[#8CA4C5] border-[#202B3D]'
-                    }`}
+                      }`}
                   >
                     {wordCount}/7 words
                   </span>
@@ -354,13 +568,12 @@ export default function DecryptPage() {
                     onChange={handleCodeChange}
                     onBlur={() => setCodeTouched(true)}
                     placeholder="e.g. winter orange velvet harbor canyon silver whisper"
-                    className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#050913] border text-[#F5F7FA] placeholder-[#8CA4C5]/40 text-xs sm:text-sm font-mono tracking-wide focus:outline-none transition-all ${
-                      isCodeValid
+                    className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#050913] border text-[#F5F7FA] placeholder-[#8CA4C5]/40 text-xs sm:text-sm font-mono tracking-wide focus:outline-none transition-all ${isCodeValid
                         ? 'border-teal-500/60 focus:border-teal-400 focus:ring-1 focus:ring-teal-400'
                         : codeTouched && sevenWordCode && !isCodeValid
                           ? 'border-amber-500/60 focus:border-amber-400 focus:ring-1 focus:ring-amber-400'
                           : 'border-[#202B3D] focus:border-[#2997FF] focus:ring-1 focus:ring-[#2997FF]'
-                    }`}
+                      }`}
                   />
                 </div>
 
@@ -426,11 +639,10 @@ export default function DecryptPage() {
                 <button
                   type="submit"
                   disabled={!isReadyToDecrypt || isSubmitting}
-                  className={`w-full group inline-flex items-center justify-center gap-2.5 py-3 px-6 rounded-xl text-sm font-semibold tracking-wide transition-all duration-300 ${
-                    isReadyToDecrypt && !isSubmitting
+                  className={`w-full group inline-flex items-center justify-center gap-2.5 py-3 px-6 rounded-xl text-sm font-semibold tracking-wide transition-all duration-300 ${isReadyToDecrypt && !isSubmitting
                       ? 'bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.99] cursor-pointer'
                       : 'bg-[#202B3D]/70 text-[#8CA4C5]/60 cursor-not-allowed border border-[#202B3D]'
-                  }`}
+                    }`}
                 >
                   {isSubmitting ? (
                     <>

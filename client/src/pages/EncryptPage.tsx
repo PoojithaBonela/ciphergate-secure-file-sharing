@@ -5,7 +5,6 @@ import {
   ShieldCheck,
   Lock,
   CheckCircle2,
-  Download,
   RotateCcw,
   AlertCircle,
   FileText,
@@ -22,7 +21,7 @@ import FileUploadZone from '@/components/encrypt/FileUploadZone'
 import PasswordSetupPanel from '@/components/encrypt/PasswordSetupPanel'
 import { evaluatePassword } from '@/components/encrypt/passwordUtils'
 import SecurityControlsPanel, { SecurityControlsState } from '@/components/encrypt/SecurityControlsPanel'
-import { encryptFile, downloadEncraFile, EncryptionResult } from '@/services/crypto/encryption'
+import { encryptFile, EncryptionResult } from '@/services/crypto/encryption'
 import { getPresignedUploadUrl, uploadToS3, verifyS3Upload } from '@/services/api/uploadService'
 import { registerTransfer, isValidSevenWordCode } from '@/services/api/transferService'
 
@@ -63,6 +62,9 @@ export default function EncryptPage() {
     locationEnabled: false,
     locationQuery: '',
     radiusKm: 5,
+    latitude: 51.5074,
+    longitude: -0.1278,
+    locationName: '',
     cameraCheckEnabled: false,
     cameraConsentChecked: false,
     notificationsEnabled: false,
@@ -142,10 +144,28 @@ export default function EncryptPage() {
         originalFileName: currentFile.name,
         mimeType: currentFile.type || 'application/octet-stream',
         fileSize: blob.size,
+        expiryMinutes:
+          securityControls.expiryEnabled && securityControls.expiryDate
+            ? Math.max(
+              1,
+              Math.round(
+                (new Date(securityControls.expiryDate).getTime() - Date.now()) / (60 * 1000),
+              ),
+            )
+            : null,
         expiresAt:
           securityControls.expiryEnabled && securityControls.expiryDate
             ? new Date(securityControls.expiryDate).toISOString()
             : null,
+        locationEnabled: securityControls.locationEnabled,
+        location: securityControls.locationEnabled
+          ? {
+            latitude: securityControls.latitude ?? 51.5074,
+            longitude: securityControls.longitude ?? -0.1278,
+            radiusKm: securityControls.radiusKm || 5,
+            locationName: securityControls.locationName || securityControls.locationQuery || '',
+          }
+          : null,
       })
 
       setRegisteredTransferId(registration.transferId)
@@ -189,12 +209,6 @@ export default function EncryptPage() {
   const handleRetryUpload = async () => {
     if (!encryptionResult || !file) return
     await performUploadAndRegistration(encryptionResult.packageBlob, file)
-  }
-
-  // Action: Trigger file download of .encra package
-  const handleDownload = () => {
-    if (!encryptionResult) return
-    downloadEncraFile(encryptionResult.packageBlob, encryptionResult.downloadFilename)
   }
 
   // Action: Reset workflow to encrypt another file
@@ -443,7 +457,7 @@ export default function EncryptPage() {
                   </span>
                 </div>
                 <p className="text-sm font-semibold text-[#2997FF] truncate mb-1">
-                  {encryptionResult.downloadFilename}
+                  {encryptionResult.packageFilename}
                 </p>
                 <div className="flex items-center gap-3 text-xs text-[#8CA4C5]">
                   <span>Package Size: {formatBytes(encryptionResult.encryptedSize)}</span>
@@ -486,24 +500,15 @@ export default function EncryptPage() {
               </p>
             </div>
 
-            {/* Actions: Download Local Copy & Encrypt Another */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+            {/* Actions: Encrypt Another */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-4 pt-2">
               <button
                 type="button"
                 onClick={handleReset}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#111E30] hover:bg-[#162740] border border-[#202B3D] text-[#F5F7FA] text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white text-xs sm:text-sm font-semibold tracking-wide transition-all shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.98] cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Encrypt Another File</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3 rounded-xl bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white text-xs sm:text-sm font-semibold tracking-wide transition-all shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.98] cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Encrypted File (.encra)</span>
               </button>
             </div>
           </div>
@@ -542,7 +547,7 @@ export default function EncryptPage() {
                 <p className="font-semibold mb-1">Upload Error Details:</p>
                 <p className="text-amber-300/90">{uploadError}</p>
                 <p className="mt-2 text-[11px] text-[#8CA4C5]">
-                  You can download your encrypted file right away or retry uploading to cloud storage.
+                  Your file is safely encrypted in browser memory. You can retry uploading to cloud storage.
                 </p>
               </div>
             )}
@@ -574,7 +579,7 @@ export default function EncryptPage() {
                   </span>
                 </div>
                 <p className="text-sm font-semibold text-[#2997FF] truncate mb-1">
-                  {encryptionResult.downloadFilename}
+                  {encryptionResult.packageFilename}
                 </p>
                 <div className="flex items-center gap-3 text-xs text-[#8CA4C5]">
                   <span>Package Size: {formatBytes(encryptionResult.encryptedSize)}</span>
@@ -584,24 +589,15 @@ export default function EncryptPage() {
               </div>
             </div>
 
-            {/* Actions: Download Local Copy & Reset */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+            {/* Actions: Encrypt Another */}
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-4 pt-2">
               <button
                 type="button"
                 onClick={handleReset}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#111E30] hover:bg-[#162740] border border-[#202B3D] text-[#F5F7FA] text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-[#111E30] hover:bg-[#162740] border border-[#202B3D] text-[#F5F7FA] text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Encrypt Another File</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDownload}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3 rounded-xl bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white text-xs sm:text-sm font-semibold tracking-wide transition-all shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.98] cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Encrypted File (.encra)</span>
               </button>
             </div>
           </div>

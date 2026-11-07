@@ -1,4 +1,10 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
+import path from 'path'
+
+// Load from cwd, server folder, and parent directory if present
+dotenv.config()
+dotenv.config({ path: path.resolve(__dirname, '../../.env') })
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') })
 
 /**
  * Centralised application configuration loaded from environment variables.
@@ -12,6 +18,7 @@ export const config = {
   isDevelopment: (process.env['NODE_ENV'] ?? 'development') === 'development',
   mongodbUri: process.env['MONGODB_URI'] ?? '',
   lookupSecret: process.env['ENCRA_LOOKUP_SECRET'] ?? '',
+  locationSecret: process.env['ENCRA_LOCATION_SECRET'] ?? '',
   aws: {
     region: process.env['AWS_REGION'] ?? 'ap-southeast-2',
     bucket: process.env['AWS_S3_BUCKET'] ?? 'encra-encrypted-files',
