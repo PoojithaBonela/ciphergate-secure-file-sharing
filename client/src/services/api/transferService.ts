@@ -37,6 +37,7 @@ export interface RegisterTransferParams {
   expiryMinutes?: number | null
   expiresAt?: string | null
   locationEnabled?: boolean
+  cameraCheckEnabled?: boolean
   location?: {
     latitude: number
     longitude: number
@@ -60,6 +61,7 @@ export interface TransferMetadata {
   createdAt: string
   expiresAt?: string | null
   locationRequired?: boolean
+  cameraCheckRequired?: boolean
   radiusKm?: number
   locationName?: string
   downloadUrl?: string

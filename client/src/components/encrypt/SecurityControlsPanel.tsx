@@ -153,6 +153,9 @@ export default function SecurityControlsPanel({
       if (row === 'location' && next === 'location') {
         onChange((prev) => ({ ...prev, locationEnabled: true }))
       }
+      if (row === 'camera' && next === 'camera') {
+        onChange((prev) => ({ ...prev, cameraCheckEnabled: true }))
+      }
       return next
     })
   }
@@ -779,7 +782,7 @@ export default function SecurityControlsPanel({
                     : 'text-[#8CA4C5]'
                 }`}
               >
-                {controls.cameraCheckEnabled ? 'Consent Required' : 'Off'}
+                {controls.cameraCheckEnabled ? 'Enabled' : 'Off'}
               </span>
 
               <button

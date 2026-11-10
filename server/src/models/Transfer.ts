@@ -31,6 +31,7 @@ export interface ITransfer extends Document {
   encryptedPackageSize?: number
   status: TransferStatus
   locationEnabled: boolean
+  cameraCheckEnabled: boolean
   encryptedLocation?: {
     version: number
     iv: string
@@ -110,6 +111,11 @@ const transferSchema = new Schema<ITransfer>(
       required: true,
       default: false,
       index: true,
+    },
+    cameraCheckEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
     },
     encryptedLocation: {
       type: {

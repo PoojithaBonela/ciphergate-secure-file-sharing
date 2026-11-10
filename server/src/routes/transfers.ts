@@ -70,6 +70,7 @@ const registerSchema = z.object({
       { message: 'Invalid expiry date format.' },
     ),
   locationEnabled: z.boolean().default(false),
+  cameraCheckEnabled: z.boolean().default(false),
   location: z
     .object({
       latitude: z.number().min(-90).max(90),
@@ -157,6 +158,7 @@ transfersRouter.post(
         expiresAt,
         locationEnabled,
         location,
+        cameraCheckEnabled,
       } = parseResult.data
 
       s3KeyToCleanOnFailure = s3ObjectKey
@@ -245,6 +247,7 @@ transfersRouter.post(
         status: 'active',
         expiresAt: calculatedExpiresAt,
         locationEnabled: Boolean(locationEnabled),
+        cameraCheckEnabled: Boolean(cameraCheckEnabled),
         encryptedLocation: encryptedLocationPayload,
         cleanupStatus: 'none',
         cleanupAttempts: 0,
@@ -394,6 +397,7 @@ transfersRouter.post(
             createdAt: transfer.createdAt,
             expiresAt: transfer.expiresAt,
             locationRequired: true,
+            cameraCheckRequired: Boolean(transfer.cameraCheckEnabled),
             radiusKm,
           },
         })
@@ -414,6 +418,7 @@ transfersRouter.post(
           createdAt: transfer.createdAt,
           expiresAt: transfer.expiresAt,
           locationRequired: false,
+          cameraCheckRequired: Boolean(transfer.cameraCheckEnabled),
           downloadUrl,
         },
       })

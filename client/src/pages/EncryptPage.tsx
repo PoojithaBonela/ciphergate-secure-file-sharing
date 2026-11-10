@@ -158,6 +158,7 @@ export default function EncryptPage() {
             ? new Date(securityControls.expiryDate).toISOString()
             : null,
         locationEnabled: securityControls.locationEnabled,
+        cameraCheckEnabled: securityControls.cameraCheckEnabled,
         location: securityControls.locationEnabled
           ? {
             latitude: securityControls.latitude ?? 51.5074,

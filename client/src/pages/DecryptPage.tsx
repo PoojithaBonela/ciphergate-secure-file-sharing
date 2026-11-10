@@ -15,6 +15,7 @@ import {
   Compass,
   Loader2,
   RefreshCw,
+  Camera,
 } from 'lucide-react'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
@@ -60,6 +61,7 @@ export default function DecryptPage() {
   const [locationError, setLocationError] = useState<string | null>(null)
   const [verifiedTransferId, setVerifiedTransferId] = useState<string | null>(null)
   const [authorizedDownloadUrl, setAuthorizedDownloadUrl] = useState<string | null>(null)
+  const [cameraCheckRequired, setCameraCheckRequired] = useState(false)
 
   // Word count & validity
   const wordCount = useMemo(() => {
@@ -81,6 +83,7 @@ export default function DecryptPage() {
     setPendingLocationTransfer(null)
     setVerifiedTransferId(null)
     setAuthorizedDownloadUrl(null)
+    setCameraCheckRequired(false)
     setLocationError(null)
     setErrorMessage(null)
     setDecryptedResult(null)
@@ -177,6 +180,7 @@ export default function DecryptPage() {
     try {
       // Step 1: Lookup transfer by 7-word phrase
       const transferMetadata = await lookupTransfer(sevenWordCode)
+      setCameraCheckRequired(Boolean(transferMetadata.cameraCheckRequired))
 
       // If location access is required, pause for receiver location verification
       if (transferMetadata.locationRequired && verifiedTransferId !== transferMetadata.transferId) {
@@ -270,6 +274,9 @@ export default function DecryptPage() {
   const handleSessionTerminate = (reason: string) => {
     setIsSecureViewerOpen(false)
     setDecryptedResult(null)
+    setAuthorizedDownloadUrl(null)
+    setVerifiedTransferId(null)
+    setPendingLocationTransfer(null)
     setTerminationReason(reason)
   }
 
@@ -284,6 +291,7 @@ export default function DecryptPage() {
     setPendingLocationTransfer(null)
     setVerifiedTransferId(null)
     setAuthorizedDownloadUrl(null)
+    setCameraCheckRequired(false)
     setIsVerifyingLocation(false)
     setIsSecureViewerOpen(false)
     setCodeTouched(false)
@@ -333,24 +341,6 @@ export default function DecryptPage() {
           </p>
         </div>
 
-        {/* ── Termination Warning Banner ───────────────────────────────── */}
-        {terminationReason && (
-          <div className="w-full mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3.5 text-amber-200 text-xs sm:text-sm animate-in fade-in duration-200">
-            <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-            <div className="flex-1">
-              <p className="font-bold text-amber-200 text-sm">Viewing Session Terminated</p>
-              <p className="text-xs text-amber-300/90 mt-0.5 leading-relaxed">
-                {terminationReason}. For privacy and zero-knowledge protection, the decrypted file was erased from memory.
-              </p>
-              <p className="text-[11px] text-[#8CA4C5] mt-1.5">
-                To protect against screen capture and tab switching, files cannot be resumed after a security event. Please re-enter your credentials below to view again.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* ── Error Banner ────────────────────────────────────────────── */}
         {errorMessage && (
           <div className="w-full mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3 text-rose-300 text-xs sm:text-sm animate-in fade-in duration-200">
@@ -362,8 +352,45 @@ export default function DecryptPage() {
           </div>
         )}
 
-        {/* ── CONDITIONAL RENDER: LOCATION GATE, SUCCESS, OR FORM ──── */}
-        {pendingLocationTransfer && !decryptedResult ? (
+        {/* ── CONDITIONAL RENDER: TERMINATION SCREEN, LOCATION GATE, SUCCESS, OR FORM ──── */}
+        {terminationReason ? (
+          /* ── DEDICATED TERMINATION SCREEN ───────────────────────────── */
+          <div className="w-full rounded-2xl bg-[#0A1220]/95 backdrop-blur-md border border-rose-500/40 p-6 sm:p-8 shadow-[0_0_50px_rgba(244,63,94,0.25)] text-center animate-in fade-in duration-300">
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 mx-auto mb-4 flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)]">
+              <ShieldAlert className="w-8 h-8" strokeWidth={1.75} />
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-bold text-[#F5F7FA] mb-2">
+              Viewing Session Terminated
+            </h2>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-xs font-semibold text-rose-300 mb-5">
+              <span>Security Policy Violation (3/3 Warnings Exceeded)</span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#050913] border border-[#202B3D] text-left max-w-md mx-auto space-y-2 mb-6 text-xs text-[#8CA4C5]">
+              <div className="flex items-start gap-2.5 text-rose-200">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-xs text-rose-200">Reason for Termination:</p>
+                  <p className="text-xs text-rose-300/90 leading-relaxed mt-0.5">{terminationReason}</p>
+                </div>
+              </div>
+              <p className="text-[11px] leading-relaxed text-[#8CA4C5] pt-2 border-t border-[#202B3D]">
+                In accordance with Encra Zero-Knowledge Security protocols, the decrypted file was permanently cleared from browser memory and active viewing was invalidated.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#111E30] hover:bg-[#162740] border border-[#202B3D] text-[#F5F7FA] text-xs sm:text-sm font-semibold transition-all cursor-pointer shadow hover:shadow-[0_0_20px_rgba(41,151,255,0.2)]"
+            >
+              <RotateCcw className="w-4 h-4 text-[#2997FF]" />
+              <span>Return to Decrypt Screen</span>
+            </button>
+          </div>
+        ) : pendingLocationTransfer && !decryptedResult ? (
           /* ── LOCATION VERIFICATION GATE ────────────────────────────── */
           <div className="w-full rounded-2xl bg-[#0A1220]/90 backdrop-blur-md border border-[#2997FF]/30 p-6 sm:p-8 shadow-[0_0_40px_rgba(41,151,255,0.1)] animate-in fade-in duration-300">
             {/* Header */}
@@ -506,7 +533,14 @@ export default function DecryptPage() {
 
               <div className="pt-2 border-t border-[#202B3D]/60 flex items-center justify-between text-xs text-[#8CA4C5]">
                 <span>Type: {decryptedResult.mimeType}</span>
-                <span className="text-teal-400 font-medium">✓ AES-GCM Integrity Verified</span>
+                <div className="flex items-center gap-3">
+                  {cameraCheckRequired && (
+                    <span className="text-[#2997FF] font-medium flex items-center gap-1">
+                      <Camera className="w-3.5 h-3.5" /> Camera Check Enforced
+                    </span>
+                  )}
+                  <span className="text-teal-400 font-medium">✓ AES-GCM Integrity Verified</span>
+                </div>
               </div>
             </div>
 
@@ -546,8 +580,8 @@ export default function DecryptPage() {
                   </label>
                   <span
                     className={`text-xs font-semibold px-2 py-0.5 rounded-md border ${isCodeValid
-                        ? 'bg-teal-500/10 text-teal-400 border-teal-500/30'
-                        : 'bg-[#050913] text-[#8CA4C5] border-[#202B3D]'
+                      ? 'bg-teal-500/10 text-teal-400 border-teal-500/30'
+                      : 'bg-[#050913] text-[#8CA4C5] border-[#202B3D]'
                       }`}
                   >
                     {wordCount}/7 words
@@ -569,10 +603,10 @@ export default function DecryptPage() {
                     onBlur={() => setCodeTouched(true)}
                     placeholder="e.g. winter orange velvet harbor canyon silver whisper"
                     className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#050913] border text-[#F5F7FA] placeholder-[#8CA4C5]/40 text-xs sm:text-sm font-mono tracking-wide focus:outline-none transition-all ${isCodeValid
-                        ? 'border-teal-500/60 focus:border-teal-400 focus:ring-1 focus:ring-teal-400'
-                        : codeTouched && sevenWordCode && !isCodeValid
-                          ? 'border-amber-500/60 focus:border-amber-400 focus:ring-1 focus:ring-amber-400'
-                          : 'border-[#202B3D] focus:border-[#2997FF] focus:ring-1 focus:ring-[#2997FF]'
+                      ? 'border-teal-500/60 focus:border-teal-400 focus:ring-1 focus:ring-teal-400'
+                      : codeTouched && sevenWordCode && !isCodeValid
+                        ? 'border-amber-500/60 focus:border-amber-400 focus:ring-1 focus:ring-amber-400'
+                        : 'border-[#202B3D] focus:border-[#2997FF] focus:ring-1 focus:ring-[#2997FF]'
                       }`}
                   />
                 </div>
@@ -640,8 +674,8 @@ export default function DecryptPage() {
                   type="submit"
                   disabled={!isReadyToDecrypt || isSubmitting}
                   className={`w-full group inline-flex items-center justify-center gap-2.5 py-3 px-6 rounded-xl text-sm font-semibold tracking-wide transition-all duration-300 ${isReadyToDecrypt && !isSubmitting
-                      ? 'bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.99] cursor-pointer'
-                      : 'bg-[#202B3D]/70 text-[#8CA4C5]/60 cursor-not-allowed border border-[#202B3D]'
+                    ? 'bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white shadow-[0_0_24px_rgba(41,151,255,0.35)] active:scale-[0.99] cursor-pointer'
+                    : 'bg-[#202B3D]/70 text-[#8CA4C5]/60 cursor-not-allowed border border-[#202B3D]'
                     }`}
                 >
                   {isSubmitting ? (
@@ -682,6 +716,7 @@ export default function DecryptPage() {
           filename={decryptedResult.filename}
           mimeType={decryptedResult.mimeType}
           fileSize={decryptedResult.originalSize}
+          cameraCheckRequired={cameraCheckRequired}
           onClose={() => setIsSecureViewerOpen(false)}
           onTerminate={handleSessionTerminate}
         />
