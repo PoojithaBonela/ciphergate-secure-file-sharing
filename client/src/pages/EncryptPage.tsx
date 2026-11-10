@@ -91,18 +91,8 @@ export default function EncryptPage() {
 
   const isVerifiedValid = useMemo(() => {
     if (securityControls.accessLevel === 'standard') return true
-    if (securityControls.verificationMethod === 'email') {
-      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(securityControls.verifiedEmail.trim())
-    }
-    const cleanPhone = securityControls.verifiedPhone.trim()
-    const digits = cleanPhone.replace(/\D/g, '')
-    return digits.length >= 7 && /^\+?[0-9\s\-()]+$/.test(cleanPhone)
-  }, [
-    securityControls.accessLevel,
-    securityControls.verificationMethod,
-    securityControls.verifiedEmail,
-    securityControls.verifiedPhone,
-  ])
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(securityControls.verifiedEmail.trim())
+  }, [securityControls.accessLevel, securityControls.verifiedEmail])
 
   const isReadyToEncrypt = useMemo(() => {
     return Boolean(file) && isPasswordValid && !fileError && isCodeValid && isVerifiedValid
@@ -156,6 +146,11 @@ export default function EncryptPage() {
         expiresAt:
           securityControls.expiryEnabled && securityControls.expiryDate
             ? new Date(securityControls.expiryDate).toISOString()
+            : null,
+        accessLevel: securityControls.accessLevel,
+        recipientEmail:
+          securityControls.accessLevel === 'verified'
+            ? securityControls.verifiedEmail.trim()
             : null,
         locationEnabled: securityControls.locationEnabled,
         cameraCheckEnabled: securityControls.cameraCheckEnabled,

@@ -38,6 +38,20 @@ export interface ITransfer extends Document {
     authTag: string
     ciphertext: string
   } | null
+  verifiedAccessEnabled: boolean
+  encryptedRecipientEmail?: {
+    version: number
+    iv: string
+    authTag: string
+    ciphertext: string
+  } | null
+  otpState?: {
+    hash: string
+    expiresAt: Date
+    attempts: number
+    lastSentAt: Date
+    verified: boolean
+  } | null
   createdAt: Date
   expiresAt: Date
   consumedAt?: Date | null
@@ -123,6 +137,31 @@ const transferSchema = new Schema<ITransfer>(
         iv: { type: String, required: true },
         authTag: { type: String, required: true },
         ciphertext: { type: String, required: true },
+      },
+      default: null,
+    },
+    verifiedAccessEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
+      index: true,
+    },
+    encryptedRecipientEmail: {
+      type: {
+        version: { type: Number, default: 1 },
+        iv: { type: String, required: true },
+        authTag: { type: String, required: true },
+        ciphertext: { type: String, required: true },
+      },
+      default: null,
+    },
+    otpState: {
+      type: {
+        hash: { type: String, default: '' },
+        expiresAt: { type: Date, required: true },
+        attempts: { type: Number, default: 0 },
+        lastSentAt: { type: Date, required: true },
+        verified: { type: Boolean, default: false },
       },
       default: null,
     },

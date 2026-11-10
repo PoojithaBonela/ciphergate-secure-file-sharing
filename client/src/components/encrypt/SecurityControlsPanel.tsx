@@ -11,7 +11,6 @@ import {
   Info,
   Mail,
   MessageSquare,
-  Smartphone,
   AlertCircle,
 } from 'lucide-react'
 import InteractiveLocationPicker from './InteractiveLocationPicker'
@@ -62,7 +61,6 @@ export default function SecurityControlsPanel({
   const [expandedRow, setExpandedRow] = useState<'expiry' | 'location' | 'camera' | 'notifications' | null>(null)
   const [showAesTooltip, setShowAesTooltip] = useState(false)
   const [emailTouched, setEmailTouched] = useState(false)
-  const [phoneTouched, setPhoneTouched] = useState(false)
   const [secretCodeTouched, setSecretCodeTouched] = useState(false)
 
   // 7-Word Secret Code validation
@@ -135,16 +133,10 @@ export default function SecurityControlsPanel({
     return `Expires in: ${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}`
   }, [controls.expiryEnabled, controls.expiryDate])
 
-  // Email & Phone validation
+  // Email validation
   const isEmailValid = useMemo(() => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(controls.verifiedEmail.trim())
   }, [controls.verifiedEmail])
-
-  const isPhoneValid = useMemo(() => {
-    const clean = controls.verifiedPhone.trim()
-    const digits = clean.replace(/\D/g, '')
-    return digits.length >= 7 && /^\+?[0-9\s\-()]+$/.test(clean)
-  }, [controls.verifiedPhone])
 
   // Helper toggle
   const toggleRow = (row: 'expiry' | 'location' | 'camera' | 'notifications') => {
@@ -394,121 +386,68 @@ export default function SecurityControlsPanel({
 
             {/* Verified OTP Configuration Drawer (Shown only when Verified access is chosen) */}
             {controls.accessLevel === 'verified' && (
-              <div className="pt-4 border-t border-[#202B3D]/70 space-y-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#8CA4C5] mb-2.5">
-                    Send OTP verification code via:
-                  </p>
-
-                  {/* Compact Segmented Control */}
-                  <div className="inline-flex p-1 rounded-xl bg-[#0A1220] border border-[#202B3D]">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onChange((prev) => ({
-                          ...prev,
-                          verificationMethod: 'email',
-                        }))
-                      }
-                      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        controls.verificationMethod === 'email'
-                          ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
-                          : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
-                      }`}
-                    >
-                      <Mail className="w-3.5 h-3.5" />
-                      <span>Email</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onChange((prev) => ({
-                          ...prev,
-                          verificationMethod: 'phone',
-                        }))
-                      }
-                      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        controls.verificationMethod === 'phone'
-                          ? 'bg-[#2997FF] text-white shadow-sm font-semibold'
-                          : 'text-[#A1ADBF] hover:text-[#F5F7FA]'
-                      }`}
-                    >
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>Phone / SMS</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Dynamic Field */}
+              <div className="pt-4 border-t border-[#202B3D]/70 space-y-3.5">
                 <div>
                   <label
                     htmlFor="encra-verification-target"
-                    className="block text-xs font-semibold text-[#8CA4C5] mb-1.5"
+                    className="flex items-center gap-2 text-xs font-semibold text-[#F5F7FA] mb-1.5"
                   >
-                    {controls.verificationMethod === 'email'
-                      ? "Recipient's email address *"
-                      : "Recipient's phone number *"}
+                    <Mail className="w-3.5 h-3.5 text-[#2997FF]" />
+                    <span>Recipient's Email Address</span>
+                    <span className="text-[#2997FF]">*</span>
                   </label>
 
-                  {controls.verificationMethod === 'email' ? (
-                    <div>
-                      <input
-                        id="encra-verification-target"
-                        type="email"
-                        required
-                        value={controls.verifiedEmail}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          onChange((prev) => ({ ...prev, verifiedEmail: val }))
-                        }}
-                        onBlur={() => setEmailTouched(true)}
-                        placeholder="recipient@example.com"
-                        className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
-                          emailTouched && controls.verifiedEmail && !isEmailValid
-                            ? 'border-rose-500/80 focus:border-rose-500'
+                  <p className="text-xs text-[#8CA4C5] mb-2 leading-relaxed">
+                    An OTP verification code will be sent to this email when the recipient accesses the transfer.
+                  </p>
+
+                  <div className="relative">
+                    <input
+                      id="encra-verification-target"
+                      type="email"
+                      required
+                      value={controls.verifiedEmail}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        onChange((prev) => ({
+                          ...prev,
+                          verifiedEmail: val,
+                          verificationMethod: 'email',
+                        }))
+                      }}
+                      onBlur={() => setEmailTouched(true)}
+                      placeholder="e.g. recipient@example.com"
+                      className={`w-full px-3.5 py-2.5 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs sm:text-sm focus:outline-none transition-colors ${
+                        emailTouched && controls.verifiedEmail && !isEmailValid
+                          ? 'border-rose-500/80 focus:border-rose-500'
+                          : isEmailValid
+                            ? 'border-teal-500/60 focus:border-teal-400'
                             : 'border-[#202B3D] focus:border-[#2997FF]'
-                        }`}
-                      />
-                      {emailTouched && controls.verifiedEmail && !isEmailValid && (
-                        <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          Please enter a valid email address (e.g. name@domain.com).
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <input
-                        id="encra-verification-target"
-                        type="tel"
-                        required
-                        value={controls.verifiedPhone}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          onChange((prev) => ({ ...prev, verifiedPhone: val }))
-                        }}
-                        onBlur={() => setPhoneTouched(true)}
-                        placeholder="+91 98765 43210"
-                        className={`w-full px-3.5 py-2 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none transition-colors ${
-                          phoneTouched && controls.verifiedPhone && !isPhoneValid
-                            ? 'border-rose-500/80 focus:border-rose-500'
-                            : 'border-[#202B3D] focus:border-[#2997FF]'
-                        }`}
-                      />
-                      {phoneTouched && controls.verifiedPhone && !isPhoneValid && (
-                        <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3 shrink-0" />
-                          Please enter a valid international telephone number with country code.
-                        </p>
-                      )}
-                    </div>
+                      }`}
+                    />
+                  </div>
+
+                  {emailTouched && controls.verifiedEmail && !isEmailValid && (
+                    <p className="mt-1.5 text-[11px] text-rose-400 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      Please enter a valid email address (e.g. name@domain.com).
+                    </p>
+                  )}
+
+                  {isEmailValid && (
+                    <p className="mt-1.5 text-[11px] text-teal-400 flex items-center gap-1 font-medium">
+                      <ShieldCheck className="w-3 h-3 shrink-0" />
+                      Valid recipient email. An encrypted OTP will be delivered upon recipient lookup.
+                    </p>
                   )}
                 </div>
 
-                <p className="text-[11px] text-[#8CA4C5] italic">
-                  Note: OTP delivery service integration is configured separately.
-                </p>
+                <div className="p-3 rounded-lg bg-[#2997FF]/5 border border-[#2997FF]/20 text-[11px] text-[#8CA4C5] flex items-start gap-2">
+                  <Info className="w-3.5 h-3.5 text-[#2997FF] shrink-0 mt-0.5" />
+                  <span>
+                    The recipient email is stored encrypted using AES-256-GCM. The recipient must verify a 6-digit code (valid for 60 seconds) sent to this inbox before file retrieval is authorized.
+                  </span>
+                </div>
               </div>
             )}
           </div>

@@ -19,6 +19,16 @@ export const config = {
   mongodbUri: process.env['MONGODB_URI'] ?? '',
   lookupSecret: process.env['ENCRA_LOOKUP_SECRET'] ?? '',
   locationSecret: process.env['ENCRA_LOCATION_SECRET'] ?? '',
+  emailSecret:
+    process.env['ENCRA_EMAIL_SECRET'] ??
+    process.env['ENCRA_LOCATION_SECRET'] ??
+    process.env['ENCRA_LOOKUP_SECRET'] ??
+    '',
+  brevo: {
+    apiKey: process.env['BREVO_API_KEY'] ?? '',
+    senderEmail: process.env['BREVO_SENDER_EMAIL'] ?? 'poojithabonela19@gmail.com',
+    senderName: process.env['BREVO_SENDER_NAME'] ?? 'Encra',
+  },
   aws: {
     region: process.env['AWS_REGION'] ?? 'ap-southeast-2',
     bucket: process.env['AWS_S3_BUCKET'] ?? 'encra-encrypted-files',

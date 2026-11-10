@@ -36,6 +36,8 @@ export interface RegisterTransferParams {
   fileSize: number
   expiryMinutes?: number | null
   expiresAt?: string | null
+  accessLevel?: 'standard' | 'verified'
+  recipientEmail?: string | null
   locationEnabled?: boolean
   cameraCheckEnabled?: boolean
   location?: {
@@ -60,11 +62,27 @@ export interface TransferMetadata {
   fileSize: number
   createdAt: string
   expiresAt?: string | null
+  otpRequired?: boolean
+  maskedEmail?: string
   locationRequired?: boolean
   cameraCheckRequired?: boolean
   radiusKm?: number
   locationName?: string
   downloadUrl?: string
+}
+
+export interface VerifyOtpResponse {
+  status: 'success'
+  verified: boolean
+  locationRequired: boolean
+  otpAuthToken?: string
+  downloadUrl?: string
+  message: string
+}
+
+export interface ResendOtpResponse {
+  status: 'success'
+  message: string
 }
 
 export interface VerifyLocationParams {
@@ -200,6 +218,67 @@ export async function verifyReceiverLocation(
   }
 
   return data as VerifyLocationResponse
+}
+
+/**
+ * Validates the receiver's submitted 6-digit OTP code on the backend.
+ * Only upon successful verification is file retrieval authorized.
+ */
+export async function verifyTransferOtp(
+  transferId: string,
+  otp: string,
+): Promise<VerifyOtpResponse> {
+  const response = await fetch(buildApiUrl('/api/transfers/verify-otp'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ transferId, otp }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error(data.message || 'Incorrect verification code. Please check and try again.')
+    }
+    if (response.status === 410) {
+      throw new Error(data.message || 'Verification code has expired. Please request a new code.')
+    }
+    if (response.status === 429) {
+      throw new Error(data.message || 'Too many attempts. Please request a new code.')
+    }
+    throw new Error(data.message || `OTP verification failed (HTTP ${response.status}).`)
+  }
+
+  return data as VerifyOtpResponse
+}
+
+/**
+ * Requests a new 6-digit OTP code dispatched to the verified recipient email.
+ * Enforces server-side cooldown.
+ */
+export async function resendTransferOtp(
+  transferId: string,
+): Promise<ResendOtpResponse> {
+  const response = await fetch(buildApiUrl('/api/transfers/resend-otp'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ transferId }),
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error(data.message || 'Please wait before requesting a new code.')
+    }
+    throw new Error(data.message || `Failed to resend code (HTTP ${response.status}).`)
+  }
+
+  return data as ResendOtpResponse
 }
 
 /**

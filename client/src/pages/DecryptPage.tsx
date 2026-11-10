@@ -20,10 +20,13 @@ import {
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import SecureFileViewer from '@/components/decrypt/SecureFileViewer'
+import OtpVerificationPanel from '@/components/decrypt/OtpVerificationPanel'
 import {
   lookupTransfer,
   consumeTransfer,
   verifyReceiverLocation,
+  verifyTransferOtp,
+  resendTransferOtp,
   isValidSevenWordCode,
   TransferMetadata,
 } from '@/services/api/transferService'
@@ -63,6 +66,10 @@ export default function DecryptPage() {
   const [authorizedDownloadUrl, setAuthorizedDownloadUrl] = useState<string | null>(null)
   const [cameraCheckRequired, setCameraCheckRequired] = useState(false)
 
+  // OTP Verification State (Email-based Verified access)
+  const [pendingOtpTransfer, setPendingOtpTransfer] = useState<TransferMetadata | null>(null)
+  const [otpVerifiedTransferId, setOtpVerifiedTransferId] = useState<string | null>(null)
+
   // Word count & validity
   const wordCount = useMemo(() => {
     if (!sevenWordCode.trim()) return 0
@@ -87,6 +94,8 @@ export default function DecryptPage() {
     setLocationError(null)
     setErrorMessage(null)
     setDecryptedResult(null)
+    setPendingOtpTransfer(null)
+    setOtpVerifiedTransferId(null)
 
     if (incoming === '') {
       setSevenWordCode('')
@@ -182,7 +191,15 @@ export default function DecryptPage() {
       const transferMetadata = await lookupTransfer(sevenWordCode)
       setCameraCheckRequired(Boolean(transferMetadata.cameraCheckRequired))
 
-      // If location access is required, pause for receiver location verification
+      // If OTP verification is required, pause and show OTP panel
+      if (transferMetadata.otpRequired && otpVerifiedTransferId !== transferMetadata.transferId) {
+        setPendingOtpTransfer(transferMetadata)
+        setIsSubmitting(false)
+        setDecryptStage(null)
+        return
+      }
+
+      // If location access is required (after OTP if both enabled), pause for receiver location verification
       if (transferMetadata.locationRequired && verifiedTransferId !== transferMetadata.transferId) {
         setPendingLocationTransfer(transferMetadata)
         setIsSubmitting(false)
@@ -208,6 +225,40 @@ export default function DecryptPage() {
       setIsSubmitting(false)
       setDecryptStage(null)
     }
+  }
+
+  // OTP Verification Completed Handler
+  const handleOtpVerified = async (result: {
+    otpAuthToken?: string
+    downloadUrl?: string
+    locationRequired: boolean
+  }) => {
+    if (!pendingOtpTransfer) return
+
+    const transfer = pendingOtpTransfer
+    setOtpVerifiedTransferId(transfer.transferId)
+    setPendingOtpTransfer(null)
+
+    // If location is also required after OTP, show location gate next
+    if (result.locationRequired) {
+      setPendingLocationTransfer(transfer)
+      return
+    }
+
+    // No location required — if downloadUrl was returned, proceed to decrypt
+    if (result.downloadUrl) {
+      await executePackageDecryption(transfer.transferId, result.downloadUrl)
+      return
+    }
+
+    // Fallback: re-trigger full flow which will skip OTP since it's verified
+    setErrorMessage('Authorization succeeded but no download URL was received. Please try again.')
+  }
+
+  // OTP Verification Cancel Handler
+  const handleOtpCancel = () => {
+    setPendingOtpTransfer(null)
+    setOtpVerifiedTransferId(null)
   }
 
   // Receiver Location Verification (Executed strictly once before releasing ciphertext)
@@ -295,6 +346,8 @@ export default function DecryptPage() {
     setIsVerifyingLocation(false)
     setIsSecureViewerOpen(false)
     setCodeTouched(false)
+    setPendingOtpTransfer(null)
+    setOtpVerifiedTransferId(null)
   }
 
   return (
@@ -390,6 +443,16 @@ export default function DecryptPage() {
               <span>Return to Decrypt Screen</span>
             </button>
           </div>
+        ) : pendingOtpTransfer && !decryptedResult ? (
+          /* ── OTP VERIFICATION GATE ─────────────────────────────────── */
+          <OtpVerificationPanel
+            transferId={pendingOtpTransfer.transferId}
+            maskedEmail={pendingOtpTransfer.maskedEmail || '***@***.***'}
+            onVerified={handleOtpVerified}
+            onCancel={handleOtpCancel}
+            verifyOtp={verifyTransferOtp}
+            resendOtp={resendTransferOtp}
+          />
         ) : pendingLocationTransfer && !decryptedResult ? (
           /* ── LOCATION VERIFICATION GATE ────────────────────────────── */
           <div className="w-full rounded-2xl bg-[#0A1220]/90 backdrop-blur-md border border-[#2997FF]/30 p-6 sm:p-8 shadow-[0_0_40px_rgba(41,151,255,0.1)] animate-in fade-in duration-300">
