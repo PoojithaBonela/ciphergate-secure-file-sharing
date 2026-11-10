@@ -4,19 +4,6 @@ interface RateLimitRecord {
   timestamps: number[]
 }
 
-const lookupAttempts = new Map<string, RateLimitRecord>()
-
-// Clean up stale records every 5 minutes
-setInterval(() => {
-  const cutoff = Date.now() - 60000
-  for (const [ip, record] of lookupAttempts.entries()) {
-    record.timestamps = record.timestamps.filter((t) => t > cutoff)
-    if (record.timestamps.length === 0) {
-      lookupAttempts.delete(ip)
-    }
-  }
-}, 5 * 60 * 1000).unref()
-
 export interface RateLimitOptions {
   windowMs: number
   max: number
@@ -24,11 +11,27 @@ export interface RateLimitOptions {
 }
 
 /**
- * In-memory rate limiting middleware.
- * Tracks attempts by client IP within the configured time window.
+ * In-memory rate limiting middleware factory.
+ * Each created limiter maintains its own isolated attempt tracking map.
  */
 export function createRateLimiter(options: RateLimitOptions) {
   const { windowMs, max, message = 'Too many requests. Please try again later.' } = options
+  const attempts = new Map<string, RateLimitRecord>()
+
+  // Clean up stale records periodically
+  const cleanupTimer = setInterval(() => {
+    const cutoff = Date.now() - windowMs
+    for (const [ip, record] of attempts.entries()) {
+      record.timestamps = record.timestamps.filter((t) => t > cutoff)
+      if (record.timestamps.length === 0) {
+        attempts.delete(ip)
+      }
+    }
+  }, 5 * 60 * 1000)
+
+  if (typeof cleanupTimer.unref === 'function') {
+    cleanupTimer.unref()
+  }
 
   return (req: Request, res: Response, next: NextFunction): void => {
     // Extract client IP safely
@@ -39,19 +42,30 @@ export function createRateLimiter(options: RateLimitOptions) {
       req.socket?.remoteAddress ||
       'unknown-ip'
 
+    const isLoopback =
+      ip === '127.0.0.1' ||
+      ip === '::1' ||
+      ip === '::ffff:127.0.0.1' ||
+      ip === 'localhost' ||
+      ip === 'unknown-ip'
+
+    // Allow generous limit on localhost/loopback in non-production environments
+    const effectiveMax =
+      process.env.NODE_ENV !== 'production' && isLoopback ? Math.max(max * 10, 100) : max
+
     const now = Date.now()
     const cutoff = now - windowMs
 
-    let record = lookupAttempts.get(ip)
+    let record = attempts.get(ip)
     if (!record) {
       record = { timestamps: [] }
-      lookupAttempts.set(ip, record)
+      attempts.set(ip, record)
     }
 
     // Keep only timestamps within window
     record.timestamps = record.timestamps.filter((t) => t > cutoff)
 
-    if (record.timestamps.length >= max) {
+    if (record.timestamps.length >= effectiveMax) {
       const oldestInWindow = record.timestamps[0] ?? now
       const retryAfterSeconds = Math.max(1, Math.ceil((oldestInWindow + windowMs - now) / 1000))
 
@@ -71,10 +85,40 @@ export function createRateLimiter(options: RateLimitOptions) {
 
 /**
  * Rate limiter specifically for secret code lookup attempts.
- * Max 10 attempts per minute per IP.
+ * Max 20 attempts per minute per IP.
  */
 export const lookupRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 20,
   message: 'Too many lookup attempts. Please wait a minute and try again.',
+})
+
+/**
+ * Rate limiter specifically for receiver OTP attempts.
+ * Max 20 attempts per minute per IP.
+ */
+export const otpRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 20,
+  message: 'Too many OTP attempts. Please wait a minute and try again.',
+})
+
+/**
+ * Rate limiter specifically for receiver location verification attempts.
+ * Max 30 attempts per minute per IP.
+ */
+export const locationRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: 'Too many location verification attempts. Please wait a minute and try again.',
+})
+
+/**
+ * Generous rate limiter for transfer consumption and post-authorization requests.
+ * Max 60 attempts per minute per IP.
+ */
+export const generalTransferRateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: 'Too many requests. Please try again in a moment.',
 })

@@ -30,7 +30,12 @@ import {
   verifySenderVerificationToken,
 } from '../services/otpService'
 import { consumeAndCleanTransfer } from '../services/cleanupService'
-import { lookupRateLimiter } from '../middleware/rateLimiter'
+import {
+  lookupRateLimiter,
+  otpRateLimiter,
+  locationRateLimiter,
+  generalTransferRateLimiter,
+} from '../middleware/rateLimiter'
 import { HttpError } from '../middleware/errorHandler'
 
 const transfersRouter = Router()
@@ -240,10 +245,10 @@ transfersRouter.post(
         if (isInactive) {
           // Invalidate old inactive transfer's fingerprint so the phrase can be safely reused
           existing.lookupFingerprint = null
-          await existing.save().catch(() => {})
+          await existing.save().catch(() => { })
         } else {
           // Active transfer already holds this code -> Clean up uploaded S3 object and reject
-          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => {})
+          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
           res.status(409).json({
             status: 'error',
             message:
@@ -408,11 +413,11 @@ transfersRouter.post(
               ['expired', 'consumed', 'deleted', 'revoked'].includes(collision.status))
           ) {
             collision.lookupFingerprint = null
-            await collision.save().catch(() => {})
+            await collision.save().catch(() => { })
             // Retry saving the new transfer
             await transfer.save()
           } else {
-            await deleteS3ObjectPermanently(s3ObjectKey).catch(() => {})
+            await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
             res.status(409).json({
               status: 'error',
               message:
@@ -685,7 +690,7 @@ transfersRouter.post(
  */
 transfersRouter.post(
   '/resend-otp',
-  lookupRateLimiter,
+  otpRateLimiter,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parseResult = resendOtpSchema.safeParse(req.body)
@@ -776,7 +781,7 @@ transfersRouter.post(
  */
 transfersRouter.post(
   '/verify-otp',
-  lookupRateLimiter,
+  otpRateLimiter,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parseResult = verifyOtpSchema.safeParse(req.body)
@@ -895,7 +900,7 @@ transfersRouter.post(
  */
 transfersRouter.post(
   '/verify-location',
-  lookupRateLimiter,
+  locationRateLimiter,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parseResult = verifyLocationSchema.safeParse(req.body)
@@ -1007,7 +1012,7 @@ transfersRouter.post(
  */
 transfersRouter.post(
   '/authorize-download',
-  lookupRateLimiter,
+  generalTransferRateLimiter,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parseResult = authorizeDownloadSchema.safeParse(req.body)
@@ -1080,7 +1085,7 @@ transfersRouter.post(
  */
 transfersRouter.post(
   '/consume',
-  lookupRateLimiter,
+  generalTransferRateLimiter,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parseResult = consumeSchema.safeParse(req.body)

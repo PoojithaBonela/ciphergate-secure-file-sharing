@@ -11,7 +11,6 @@ import {
   Laptop,
   Smartphone,
   Tablet,
-  Camera,
   AlertTriangle,
   Radio,
   RefreshCw,
@@ -21,6 +20,7 @@ import {
   Trash2,
   ArrowLeft,
   Layers,
+  Compass,
 } from 'lucide-react'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
@@ -198,7 +198,7 @@ export default function DashboardPage() {
     const status = dashboardData?.session.sessionStatus
     if (status === 'in_progress') {
       return {
-        label: 'Decryption in progress',
+        label: 'DECRYPTION IN PROGRESS',
         bgColor: 'bg-[#2997FF]/15',
         textColor: 'text-[#2997FF]',
         borderColor: 'border-[#2997FF]/40',
@@ -207,7 +207,7 @@ export default function DashboardPage() {
     }
     if (status === 'completed') {
       return {
-        label: 'Session Completed',
+        label: 'VIEWING SESSION ENDED',
         bgColor: 'bg-emerald-500/15',
         textColor: 'text-emerald-400',
         borderColor: 'border-emerald-500/30',
@@ -216,7 +216,7 @@ export default function DashboardPage() {
     }
     if (status === 'terminated') {
       return {
-        label: 'Session Terminated',
+        label: 'SESSION TERMINATED',
         bgColor: 'bg-amber-500/15',
         textColor: 'text-amber-400',
         borderColor: 'border-amber-500/30',
@@ -225,7 +225,7 @@ export default function DashboardPage() {
     }
     if (status === 'revoked') {
       return {
-        label: 'Access Revoked',
+        label: 'ACCESS REVOKED',
         bgColor: 'bg-red-500/15',
         textColor: 'text-red-400',
         borderColor: 'border-red-500/30',
@@ -233,13 +233,27 @@ export default function DashboardPage() {
       }
     }
     return {
-      label: status || 'Unknown',
+      label: status?.toUpperCase() || 'UNKNOWN',
       bgColor: 'bg-[#202B3D]',
       textColor: 'text-[#8CA4C5]',
       borderColor: 'border-[#27374D]',
       pulse: false,
     }
   }, [dashboardData?.session.sessionStatus])
+
+  // Check if transfer can be revoked
+  const isRevocable = useMemo(() => {
+    if (!dashboardData) return false
+    const transferStatus = dashboardData.transfer.status
+    const sessionStatus = dashboardData.session.sessionStatus
+    return (
+      transferStatus !== 'revoked' &&
+      transferStatus !== 'consumed' &&
+      transferStatus !== 'deleted' &&
+      transferStatus !== 'expired' &&
+      sessionStatus !== 'revoked'
+    )
+  }, [dashboardData])
 
   return (
     <div className="min-h-screen flex flex-col bg-[#050913] text-[#F5F7FA]">
@@ -268,7 +282,7 @@ export default function DashboardPage() {
         {isLoading && (
           <div className="flex flex-col items-center justify-center my-32">
             <div className="w-10 h-10 border-2 border-[#2997FF]/30 border-t-[#2997FF] rounded-full animate-spin mb-4" />
-            <p className="text-sm font-medium text-[#8CA4C5]">Loading secure activity telemetry...</p>
+            <p className="text-sm font-medium text-[#8CA4C5]">Authenticating magic link session...</p>
           </div>
         )}
 
@@ -280,7 +294,7 @@ export default function DashboardPage() {
               <div>
                 <div className="flex items-center gap-3 mb-2 flex-wrap">
                   <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#F5F7FA]">
-                    Transfer Activity Dashboard
+                    Sender Activity Dashboard
                   </h1>
 
                   {/* Status Badge */}
@@ -308,7 +322,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   type="button"
                   onClick={() => fetchData(false)}
@@ -322,18 +336,21 @@ export default function DashboardPage() {
                   <span>Refresh</span>
                 </button>
 
-                {/* Revoke Access Button */}
-                {dashboardData.transfer.status !== 'revoked' &&
-                  dashboardData.session.sessionStatus !== 'revoked' && (
-                    <button
-                      type="button"
-                      onClick={() => setIsRevokeModalOpen(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold tracking-wide transition-all shadow-[0_0_12px_rgba(239,68,68,0.15)] cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Revoke Access</span>
-                    </button>
-                  )}
+                {/* Revoke Access Button (Prominent when revocable) */}
+                {isRevocable ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsRevokeModalOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-semibold tracking-wide transition-all shadow-[0_0_12px_rgba(239,68,68,0.15)] cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>REVOKE ACCESS</span>
+                  </button>
+                ) : (
+                  <span className="px-3 py-1.5 rounded-xl bg-[#0A1220] border border-[#202B3D] text-[#8CA4C5] text-xs font-medium">
+                    Storage Status: <strong className="text-[#F5F7FA] uppercase">{dashboardData.transfer.status}</strong>
+                  </span>
+                )}
               </div>
             </div>
 
@@ -382,14 +399,14 @@ export default function DashboardPage() {
                   <div className="text-sm font-semibold text-[#F5F7FA] mt-0.5 line-clamp-1">
                     {isInProgress
                       ? 'Decryption in progress...'
-                      : dashboardData.session.outcome || 'Session concluded'}
+                      : dashboardData.session.outcome || 'Session finalized'}
                   </div>
                   <div className="text-[11px] text-[#8CA4C5] mt-1">
                     {isInProgress
-                      ? 'Recipient currently reading file'
+                      ? 'Recipient currently viewing document'
                       : dashboardData.session.terminationReason
-                      ? `Reason: ${dashboardData.session.terminationReason}`
-                      : 'Decryption completed normally'}
+                        ? `Reason: ${dashboardData.session.terminationReason}`
+                        : 'Decryption completed normally'}
                   </div>
                 </div>
               </div>
@@ -404,106 +421,82 @@ export default function DashboardPage() {
                     Recipient Device
                   </div>
                   <div className="text-sm font-semibold text-[#F5F7FA] mt-0.5">
-                    {dashboardData.session.deviceInfo.os} • {dashboardData.session.deviceInfo.browser}
+                    {dashboardData.session.deviceInfo.os} • {dashboardData.session.deviceInfo.browser} {dashboardData.session.deviceInfo.browserVersion || ''}
                   </div>
                   <div className="text-[11px] text-[#8CA4C5] mt-1">
-                    {dashboardData.session.deviceInfo.deviceType} (
-                    {dashboardData.session.deviceInfo.screenResolution || 'Standard'})
+                    {dashboardData.session.deviceInfo.deviceType} ({dashboardData.session.deviceInfo.screenResolution || 'Standard'})
                   </div>
                 </div>
               </div>
 
-              {/* Metric 4: Access Location */}
+              {/* Metric 4: Geofence or Security Status */}
               <div className="p-5 rounded-2xl bg-[#0A1220] border border-[#202B3D] flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl bg-[#111D2E] border border-[#27374D] flex items-center justify-center text-[#2997FF]">
-                  <MapPin className="w-6 h-6" />
+                  {dashboardData.session.locationInfo.enabled ? (
+                    <MapPin className="w-6 h-6" />
+                  ) : (
+                    <Shield className="w-6 h-6" />
+                  )}
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-wider text-[#8CA4C5] font-semibold">
-                    Location Verification
+                    {dashboardData.session.locationInfo.enabled ? 'Location Verification' : 'Access Level'}
                   </div>
                   <div className="text-sm font-semibold text-[#F5F7FA] mt-0.5">
                     {dashboardData.session.locationInfo.enabled
                       ? dashboardData.session.locationInfo.verificationResult === 'passed'
                         ? 'Passed & Verified'
                         : 'Failed'
-                      : 'Disabled (Standard Access)'}
+                      : dashboardData.session.authResults.recipientOtp.enabled
+                        ? 'Verified Access'
+                        : 'Standard Access'}
                   </div>
                   <div className="text-[11px] text-[#8CA4C5] mt-1">
                     {dashboardData.session.locationInfo.enabled
-                      ? dashboardData.session.locationInfo.permittedLocationName || 'Geofenced'
-                      : 'No location restrictions'}
+                      ? `${dashboardData.session.locationInfo.permittedRadiusKm || 5} km permitted radius`
+                      : 'Zero-Knowledge Protection Active'}
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* ── Main Two-Column Layout ───────────────────────────── */}
+            {/* ── Main Dashboard Layout ───────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left Column (2 Cols): Receiver Snapshot & Timeline */}
+              {/* Left Column (2 Cols): Chronological Activity Timeline */}
               <div className="lg:col-span-2 space-y-8">
-                {/* 1. Receiver Snapshot Card */}
                 <div className="p-6 rounded-2xl bg-[#0A1220] border border-[#202B3D]">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2.5">
-                      <Camera className="w-5 h-5 text-[#2997FF]" />
-                      <h2 className="text-base font-bold text-[#F5F7FA]">Receiver Snapshot</h2>
-                    </div>
-                    {dashboardData.session.receiverSnapshot.hasSnapshot && (
-                      <span className="text-xs font-mono text-[#8CA4C5]">
-                        Captured: {formatTimeOnly(dashboardData.session.receiverSnapshot.capturedAt)}
-                      </span>
-                    )}
-                  </div>
-
-                  {dashboardData.session.receiverSnapshot.url ? (
-                    <div className="space-y-4">
-                      <div className="relative rounded-xl overflow-hidden border border-[#27374D] bg-[#050913] max-w-md mx-auto aspect-video flex items-center justify-center">
-                        <img
-                          src={dashboardData.session.receiverSnapshot.url}
-                          alt="Receiver Camera Check Snapshot"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute bottom-2 right-2 px-2.5 py-1 rounded-md bg-[#050913]/80 backdrop-blur-md border border-[#27374D] text-[10px] text-[#8CA4C5] font-mono">
-                          AWS S3 Private Storage
-                        </div>
-                      </div>
-                      <p className="text-xs text-[#8CA4C5] text-center">
-                        Snapshot captured automatically via Camera Check presence verification and
-                        stored encrypted in private AWS S3.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-8 rounded-xl bg-[#050913] border border-dashed border-[#202B3D] text-center">
-                      <Camera className="w-8 h-8 text-[#8CA4C5]/40 mx-auto mb-2" />
-                      <p className="text-sm font-medium text-[#F5F7FA]">
-                        {dashboardData.session.authResults.cameraCheck.enabled
-                          ? 'Snapshot pending or capture in progress...'
-                          : 'Camera Check Was Not Enabled'}
-                      </p>
-                      <p className="text-xs text-[#8CA4C5] mt-1 max-w-sm mx-auto">
-                        {dashboardData.session.authResults.cameraCheck.enabled
-                          ? 'The snapshot will appear here as soon as the receiver completes camera stabilization.'
-                          : 'Camera presence verification and receiver snapshots were disabled by sender for this transfer.'}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. Chronological Security Events Timeline */}
-                <div className="p-6 rounded-2xl bg-[#0A1220] border border-[#202B3D]">
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#202B3D]">
                     <div className="flex items-center gap-2.5">
                       <Layers className="w-5 h-5 text-[#2997FF]" />
                       <h2 className="text-base font-bold text-[#F5F7FA]">
-                        Chronological Activity Timeline
+                        Security Activity Timeline
                       </h2>
                     </div>
-                    <span className="text-xs text-[#8CA4C5]">
-                      {dashboardData.session.securityEvents.length} events logged
-                    </span>
+                    <div className="flex items-center gap-2 text-xs text-[#8CA4C5]">
+                      <span className="w-2 h-2 rounded-full bg-[#2997FF]" />
+                      <span>{dashboardData.session.securityEvents.length} events logged</span>
+                    </div>
                   </div>
 
+                  {/* Final Report Summary Header if Session is finalized */}
+                  {!isInProgress && (
+                    <div className="mb-6 p-4 rounded-xl bg-[#050913] border border-[#27374D] space-y-2 text-xs">
+                      <div className="font-semibold text-[#F5F7FA] text-sm mb-2 flex items-center justify-between">
+                        <span>Final Activity Summary</span>
+                        <span className="text-[#2997FF] font-mono">
+                          Duration: {formatDuration(dashboardData.session.durationSeconds)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#8CA4C5]">
+                        <div>Session Started: <strong className="text-[#F5F7FA]">{formatDate(dashboardData.session.startedAt)}</strong></div>
+                        <div>Session Ended: <strong className="text-[#F5F7FA]">{formatDate(dashboardData.session.endedAt)}</strong></div>
+                        <div>Final Status: <strong className="text-[#F5F7FA] uppercase">{dashboardData.session.sessionStatus}</strong></div>
+                        <div>Outcome: <strong className="text-[#F5F7FA]">{dashboardData.session.outcome || 'Finalized'}</strong></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Timeline Events List */}
                   <div className="relative pl-6 space-y-6 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-[#202B3D]">
                     {dashboardData.session.securityEvents.length === 0 ? (
                       <p className="text-xs text-[#8CA4C5]">No security events logged yet.</p>
@@ -548,7 +541,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Right Column (1 Col): Transfer & Auth Breakdown */}
+              {/* Right Column (1 Col): Transfer Metadata & Authentication Details */}
               <div className="space-y-8">
                 {/* 1. Transfer Information Details */}
                 <div className="p-6 rounded-2xl bg-[#0A1220] border border-[#202B3D]">
@@ -566,16 +559,16 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex justify-between py-2 border-b border-[#202B3D]">
-                      <span className="text-[#8CA4C5]">Package Size</span>
+                      <span className="text-[#8CA4C5]">Transfer Reference</span>
                       <span className="text-[#F5F7FA] font-mono">
-                        {formatBytes(dashboardData.transfer.fileSize)}
+                        {dashboardData.transfer.transferId}
                       </span>
                     </div>
 
                     <div className="flex justify-between py-2 border-b border-[#202B3D]">
-                      <span className="text-[#8CA4C5]">MIME Type</span>
+                      <span className="text-[#8CA4C5]">Package Size</span>
                       <span className="text-[#F5F7FA] font-mono">
-                        {dashboardData.transfer.mimeType}
+                        {formatBytes(dashboardData.transfer.fileSize)}
                       </span>
                     </div>
 
@@ -594,8 +587,8 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex justify-between py-2">
-                      <span className="text-[#8CA4C5]">Cloud Status</span>
-                      <span className="text-[#F5F7FA] capitalize font-semibold">
+                      <span className="text-[#8CA4C5]">Current Status</span>
+                      <span className="text-[#F5F7FA] uppercase font-semibold">
                         {dashboardData.transfer.status}
                       </span>
                     </div>
@@ -606,7 +599,7 @@ export default function DashboardPage() {
                 <div className="p-6 rounded-2xl bg-[#0A1220] border border-[#202B3D]">
                   <h2 className="text-base font-bold text-[#F5F7FA] mb-4 flex items-center gap-2">
                     <Shield className="w-4 h-4 text-[#2997FF]" />
-                    <span>Authentication Layers</span>
+                    <span>Authentication Results</span>
                   </h2>
 
                   <div className="space-y-3">
@@ -616,13 +609,13 @@ export default function DashboardPage() {
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         <div>
                           <div className="text-xs font-semibold text-[#F5F7FA]">
-                            7-Word Secret Code
+                            Seven-Word Secret Code
                           </div>
-                          <div className="text-[10px] text-[#8CA4C5]">HMAC-SHA-256 zero-knowledge</div>
+                          <div className="text-[10px] text-[#8CA4C5]">HMAC-SHA-256 zero-knowledge match</div>
                         </div>
                       </div>
                       <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Passed
+                        Verified
                       </span>
                     </div>
 
@@ -638,11 +631,11 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Passed
+                        Verified
                       </span>
                     </div>
 
-                    {/* Layer 3: Recipient Email OTP */}
+                    {/* Layer 3: Recipient Email OTP (Only if enabled) */}
                     <div className="p-3 rounded-xl bg-[#050913] border border-[#202B3D] flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         {dashboardData.session.authResults.recipientOtp.enabled ? (
@@ -661,22 +654,21 @@ export default function DashboardPage() {
                           <div className="text-[10px] text-[#8CA4C5]">
                             {dashboardData.session.authResults.recipientOtp.enabled
                               ? 'Verified Access via Brevo'
-                              : 'Not configured'}
+                              : 'Feature disabled for this transfer'}
                           </div>
                         </div>
                       </div>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          dashboardData.session.authResults.recipientOtp.enabled
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${dashboardData.session.authResults.recipientOtp.enabled
                             ? dashboardData.session.authResults.recipientOtp.verified
                               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                               : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                             : 'bg-[#202B3D] text-[#8CA4C5]'
-                        }`}
+                          }`}
                       >
                         {dashboardData.session.authResults.recipientOtp.enabled
                           ? dashboardData.session.authResults.recipientOtp.verified
-                            ? 'Verified'
+                            ? 'Passed'
                             : 'Pending'
                           : 'Disabled'}
                       </span>
@@ -701,22 +693,21 @@ export default function DashboardPage() {
                           <div className="text-[10px] text-[#8CA4C5]">
                             {dashboardData.session.locationInfo.enabled
                               ? `Radius: ${dashboardData.session.locationInfo.permittedRadiusKm || '--'} km`
-                              : 'Not configured'}
+                              : 'Feature disabled for this transfer'}
                           </div>
                         </div>
                       </div>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          dashboardData.session.locationInfo.enabled
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${dashboardData.session.locationInfo.enabled
                             ? dashboardData.session.locationInfo.verificationResult === 'passed'
                               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                               : 'bg-red-500/10 text-red-400 border border-red-500/20'
                             : 'bg-[#202B3D] text-[#8CA4C5]'
-                        }`}
+                          }`}
                       >
                         {dashboardData.session.locationInfo.enabled
                           ? dashboardData.session.locationInfo.verificationResult === 'passed'
-                            ? 'Authorized'
+                            ? 'Passed'
                             : 'Failed'
                           : 'Disabled'}
                       </span>
@@ -726,11 +717,7 @@ export default function DashboardPage() {
                     <div className="p-3 rounded-xl bg-[#050913] border border-[#202B3D] flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         {dashboardData.session.authResults.cameraCheck.enabled ? (
-                          dashboardData.session.receiverSnapshot.hasSnapshot ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          ) : (
-                            <Clock className="w-4 h-4 text-amber-400" />
-                          )
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         ) : (
                           <MinusCircle className="w-4 h-4 text-[#8CA4C5]/50" />
                         )}
@@ -741,42 +728,35 @@ export default function DashboardPage() {
                           <div className="text-[10px] text-[#8CA4C5]">
                             {dashboardData.session.authResults.cameraCheck.enabled
                               ? 'Active presence & gaze monitor'
-                              : 'Not configured'}
+                              : 'Feature disabled for this transfer'}
                           </div>
                         </div>
                       </div>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          dashboardData.session.authResults.cameraCheck.enabled
-                            ? dashboardData.session.receiverSnapshot.hasSnapshot
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${dashboardData.session.authResults.cameraCheck.enabled
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                             : 'bg-[#202B3D] text-[#8CA4C5]'
-                        }`}
+                          }`}
                       >
-                        {dashboardData.session.authResults.cameraCheck.enabled
-                          ? dashboardData.session.receiverSnapshot.hasSnapshot
-                            ? 'Verified'
-                            : 'Stabilizing'
-                          : 'Disabled'}
+                        {dashboardData.session.authResults.cameraCheck.enabled ? 'Granted' : 'Disabled'}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* 3. Location Details Card (if enabled) */}
+                {/* 3. Location Information Card (ONLY IF location verification was enabled) */}
                 {dashboardData.session.locationInfo.enabled && (
                   <div className="p-6 rounded-2xl bg-[#0A1220] border border-[#202B3D]">
                     <h2 className="text-base font-bold text-[#F5F7FA] mb-4 flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-[#2997FF]" />
-                      <span>Geofence Parameters</span>
+                      <Compass className="w-4 h-4 text-[#2997FF]" />
+                      <span>Location Geofence Information</span>
                     </h2>
 
                     <div className="space-y-3 text-xs">
                       <div className="flex justify-between py-2 border-b border-[#202B3D]">
                         <span className="text-[#8CA4C5]">Permitted Location</span>
-                        <span className="text-[#F5F7FA] font-medium">
-                          {dashboardData.session.locationInfo.permittedLocationName || 'Specified coordinates'}
+                        <span className="text-[#F5F7FA] font-medium max-w-[180px] truncate text-right">
+                          {dashboardData.session.locationInfo.permittedLocationName || 'Specified geographic coordinates'}
                         </span>
                       </div>
 
@@ -787,7 +767,7 @@ export default function DashboardPage() {
                         </span>
                       </div>
 
-                      {dashboardData.session.locationInfo.receiverCoordinates && (
+                      {dashboardData.session.locationInfo.receiverCoordinates ? (
                         <div className="flex justify-between py-2 border-b border-[#202B3D]">
                           <span className="text-[#8CA4C5]">Receiver Coordinates</span>
                           <span className="text-[#F5F7FA] font-mono">
@@ -795,10 +775,32 @@ export default function DashboardPage() {
                             {dashboardData.session.locationInfo.receiverCoordinates.longitude.toFixed(4)}
                           </span>
                         </div>
+                      ) : (
+                        <div className="flex justify-between py-2 border-b border-[#202B3D]">
+                          <span className="text-[#8CA4C5]">Receiver Coordinates</span>
+                          <span className="text-[#8CA4C5] italic">Not recorded</span>
+                        </div>
                       )}
 
+                      {dashboardData.session.locationInfo.distanceKm !== undefined &&
+                        dashboardData.session.locationInfo.distanceKm !== null && (
+                          <div className="flex justify-between py-2 border-b border-[#202B3D]">
+                            <span className="text-[#8CA4C5]">Calculated Distance</span>
+                            <span className="text-[#F5F7FA] font-mono">
+                              {dashboardData.session.locationInfo.distanceKm.toFixed(1)} km
+                            </span>
+                          </div>
+                        )}
+
+                      <div className="flex justify-between py-2 border-b border-[#202B3D]">
+                        <span className="text-[#8CA4C5]">Verification Timestamp</span>
+                        <span className="text-[#F5F7FA]">
+                          {formatDate(dashboardData.session.locationInfo.verifiedAt)}
+                        </span>
+                      </div>
+
                       <div className="flex justify-between py-2">
-                        <span className="text-[#8CA4C5]">Verification Status</span>
+                        <span className="text-[#8CA4C5]">Verification Result</span>
                         <span className="text-emerald-400 font-semibold uppercase tracking-wider text-[11px]">
                           {dashboardData.session.locationInfo.verificationResult}
                         </span>
@@ -823,9 +825,9 @@ export default function DashboardPage() {
             <h3 className="text-lg font-bold text-[#F5F7FA] mb-2">Revoke Transfer Access?</h3>
 
             <p className="text-xs text-[#8CA4C5] leading-relaxed mb-6">
-              Revoking access will <strong className="text-red-400">immediately terminate</strong> the
-              active viewing session, permanently delete the encrypted file from AWS S3, and destroy the
-              receiver snapshot. This action cannot be undone.
+              Revoking access will <strong className="text-red-400">immediately terminate</strong> any
+              active viewing session, permanently delete the encrypted file package from AWS S3, and
+              invalidate the transfer. This action cannot be undone.
             </p>
 
             {revokeErrorMessage && (
@@ -858,7 +860,7 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Yes, Revoke Permanently</span>
+                    <span>Yes, Revoke Access Now</span>
                   </>
                 )}
               </button>

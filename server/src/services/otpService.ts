@@ -159,8 +159,8 @@ export async function sendBrevoOtpEmail(
   const subject = 'Your Encra Verification Code'
   const fileNotice = originalFileName
     ? `<p style="margin: 0 0 16px; font-size: 14px; color: #8CA4C5;">A protected file (<strong>${escapeHtml(
-        originalFileName,
-      )}</strong>) has been shared with you via Encra.</p>`
+      originalFileName,
+    )}</strong>) has been shared with you via Encra.</p>`
     : ''
 
   const htmlContent = `
@@ -489,108 +489,6 @@ export async function sendBrevoSenderOtpEmail(
   }
 }
 
-/**
- * Dispatches an access notification email to the verified sender when their file is decrypted.
- */
-export async function sendBrevoTransferAccessedEmail(
-  senderEmail: string,
-  originalFileName: string,
-  accessedAt: Date,
-): Promise<{ success: boolean; error?: string }> {
-  const apiKey = config.brevo.apiKey
-  if (!apiKey) {
-    return { success: false, error: 'Brevo API key is not configured.' }
-  }
 
-  const subject = `Your encrypted file "${originalFileName}" was accessed`
-  const formattedTime = accessedAt.toUTCString()
-
-  const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Your encrypted file was accessed</title>
-</head>
-<body style="margin: 0; padding: 32px 16px; background-color: #050913; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #F5F7FA;">
-  <div style="max-width: 520px; margin: 0 auto; background-color: #0A1220; border: 1px solid #202B3D; border-radius: 16px; padding: 36px 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-    <div style="text-align: center; margin-bottom: 24px;">
-      <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; color: #F5F7FA;">
-        ENCRA <span style="color: #2997FF; font-weight: 400;">3.0</span>
-      </h1>
-      <p style="margin: 6px 0 0; font-size: 12px; color: #8CA4C5; text-transform: uppercase; letter-spacing: 1.5px;">
-        Access Notification Alert
-      </p>
-    </div>
-
-    <div style="border-top: 1px solid #202B3D; padding-top: 24px; margin-bottom: 24px;">
-      <div style="display: inline-block; padding: 6px 12px; border-radius: 8px; background: rgba(41, 151, 255, 0.12); border: 1px solid rgba(41, 151, 255, 0.3); color: #2997FF; font-size: 12px; font-weight: 600; margin-bottom: 16px;">
-        ✓ File Successfully Decrypted
-      </div>
-
-      <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 600; color: #F5F7FA;">
-        Transfer Access Confirmed
-      </h2>
-
-      <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: #A1ADBF;">
-        Your recipient has entered the correct secret credentials and successfully decrypted your protected file:
-      </p>
-
-      <div style="background: #050913; border: 1px solid #202B3D; border-radius: 10px; padding: 16px; margin: 20px 0;">
-        <p style="margin: 0 0 8px; font-size: 13px; color: #8CA4C5;">File Name: <strong style="color: #F5F7FA;">${escapeHtml(originalFileName)}</strong></p>
-        <p style="margin: 0; font-size: 13px; color: #8CA4C5;">Accessed Time: <span style="color: #F5F7FA;">${formattedTime}</span></p>
-      </div>
-
-      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #62758D;">
-        In accordance with Encra Zero-Knowledge protocol, the encrypted package in cloud storage has been consumed and deleted.
-      </p>
-    </div>
-
-    <div style="border-top: 1px solid #202B3D; padding-top: 18px; text-align: center;">
-      <p style="margin: 0; font-size: 11px; color: #4B5E76;">
-        Encra End-to-End Encrypted File Protection • Client-side Zero Knowledge
-      </p>
-    </div>
-  </div>
-</body>
-</html>
-  `
-
-  try {
-    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'api-key': apiKey,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        sender: {
-          name: config.brevo.senderName || 'Encra',
-          email: config.brevo.senderEmail,
-        },
-        to: [
-          {
-            email: senderEmail,
-          },
-        ],
-        subject,
-        htmlContent,
-      }),
-    })
-
-    if (!response.ok) {
-      const errBody = await response.text()
-      console.error(`[Brevo] Failed to send access notification email (HTTP ${response.status}):`, errBody)
-      return { success: false, error: `Brevo email dispatch failed (HTTP ${response.status})` }
-    }
-
-    return { success: true }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Brevo network error'
-    console.error('[Brevo] Network error dispatching access notification:', message)
-    return { success: false, error: message }
-  }
-}
 
 

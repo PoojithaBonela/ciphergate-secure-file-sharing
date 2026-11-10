@@ -217,6 +217,9 @@ export async function verifyReceiverLocation(
     if (response.status === 410) {
       throw new Error(data.message || 'This transfer has expired and is no longer available.')
     }
+    if (response.status === 429) {
+      throw new Error(data.message || 'Too many verification attempts. Please wait a moment and try again.')
+    }
     throw new Error(data.message || `Location verification failed (HTTP ${response.status}).`)
   }
 

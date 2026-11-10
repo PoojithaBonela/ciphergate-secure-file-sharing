@@ -20,7 +20,6 @@ import { disposeFaceLandmarker } from '../../services/ai/faceGazeService'
 import {
   detectDeviceInfo,
   startActivitySession,
-  uploadReceiverSnapshot,
   recordActivityEvent,
   endActivitySession,
   checkTransferStatus,
@@ -39,42 +38,6 @@ export interface SecureFileViewerProps {
   locationInfo?: LocationInfo | null
   onClose: () => void
   onTerminate: (reason: string) => void
-}
-
-function captureStreamSnapshot(stream: MediaStream): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      const video = document.createElement('video')
-      video.srcObject = stream
-      video.muted = true
-      video.playsInline = true
-      video.onloadedmetadata = () => {
-        video.play().then(() => {
-          setTimeout(() => {
-            try {
-              const canvas = document.createElement('canvas')
-              canvas.width = video.videoWidth || 640
-              canvas.height = video.videoHeight || 480
-              const ctx = canvas.getContext('2d')
-              if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-                resolve(canvas.toDataURL('image/jpeg', 0.85))
-              } else {
-                resolve(null)
-              }
-            } catch {
-              resolve(null)
-            } finally {
-              video.pause()
-              video.srcObject = null
-            }
-          }, 300)
-        }).catch(() => resolve(null))
-      }
-    } catch {
-      resolve(null)
-    }
-  })
 }
 
 function formatBytes(bytes: number): string {
@@ -118,7 +81,6 @@ export default function SecureFileViewer({
   // Session activity & telemetry refs
   const sessionStartTimeRef = useRef<number>(Date.now())
   const hasReportedStartRef = useRef<boolean>(false)
-  const hasCapturedSnapshotRef = useRef<boolean>(false)
   const prevLookingAwayRef = useRef<number>(0)
   const prevMultipleFacesRef = useRef<number>(0)
   const prevNoFaceRef = useRef<number>(0)
@@ -214,41 +176,7 @@ export default function SecureFileViewer({
     }
   }, [hasStartedViewing, transferId, authResults, locationInfo, cameraCheckRequired])
 
-  // Telemetry 2: Capture receiver snapshot if camera is active and upload to S3 receiver-snapshots/
-  useEffect(() => {
-    if (!hasStartedViewing || hasCapturedSnapshotRef.current || !transferId) return
-
-    if (cameraStream) {
-      hasCapturedSnapshotRef.current = true
-      const timer = setTimeout(async () => {
-        try {
-          let dataUrl: string | null = null
-          if (previewVideoRef.current && previewVideoRef.current.readyState >= 2) {
-            const video = previewVideoRef.current
-            const canvas = document.createElement('canvas')
-            canvas.width = video.videoWidth || 640
-            canvas.height = video.videoHeight || 480
-            const ctx = canvas.getContext('2d')
-            if (ctx) {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-              dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-            }
-          }
-          if (!dataUrl && cameraStream) {
-            dataUrl = await captureStreamSnapshot(cameraStream)
-          }
-          if (dataUrl) {
-            await uploadReceiverSnapshot(transferId, dataUrl)
-          }
-        } catch (err) {
-          console.warn('[SecureFileViewer] Failed to capture receiver snapshot:', err)
-        }
-      }, 600)
-      return () => clearTimeout(timer)
-    }
-  }, [hasStartedViewing, cameraStream, transferId])
-
-  // Telemetry 3: Forward monitoring warning counters in real-time to activity log
+  // Telemetry 2: Forward monitoring warning counters in real-time to activity log
   useEffect(() => {
     if (!hasStartedViewing || !transferId) return
 
