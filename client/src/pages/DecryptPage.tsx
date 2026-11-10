@@ -69,6 +69,12 @@ export default function DecryptPage() {
   // OTP Verification State (Email-based Verified access)
   const [pendingOtpTransfer, setPendingOtpTransfer] = useState<TransferMetadata | null>(null)
   const [otpVerifiedTransferId, setOtpVerifiedTransferId] = useState<string | null>(null)
+  const [activeTransferId, setActiveTransferId] = useState<string | null>(null)
+  const [locationDetails, setLocationDetails] = useState<{
+    receiverCoordinates?: { latitude: number; longitude: number } | null
+    distanceKm?: number | null
+    verificationResult: 'passed' | 'failed' | 'disabled'
+  } | null>(null)
 
   // Word count & validity
   const wordCount = useMemo(() => {
@@ -96,6 +102,8 @@ export default function DecryptPage() {
     setDecryptedResult(null)
     setPendingOtpTransfer(null)
     setOtpVerifiedTransferId(null)
+    setActiveTransferId(null)
+    setLocationDetails(null)
 
     if (incoming === '') {
       setSevenWordCode('')
@@ -136,6 +144,7 @@ export default function DecryptPage() {
     transferId: string,
     downloadUrl: string,
   ) => {
+    setActiveTransferId(transferId)
     setIsSubmitting(true)
     setErrorMessage(null)
     setDecryptStage('Retrieving encrypted package...')
@@ -259,6 +268,8 @@ export default function DecryptPage() {
   const handleOtpCancel = () => {
     setPendingOtpTransfer(null)
     setOtpVerifiedTransferId(null)
+    setActiveTransferId(null)
+    setLocationDetails(null)
   }
 
   // Receiver Location Verification (Executed strictly once before releasing ciphertext)
@@ -286,6 +297,10 @@ export default function DecryptPage() {
 
           setVerifiedTransferId(targetTransferId)
           setAuthorizedDownloadUrl(res.downloadUrl)
+          setLocationDetails({
+            receiverCoordinates: { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+            verificationResult: 'passed',
+          })
           setIsVerifyingLocation(false)
 
           // Decrypt file immediately upon authorized location verification
@@ -348,6 +363,8 @@ export default function DecryptPage() {
     setCodeTouched(false)
     setPendingOtpTransfer(null)
     setOtpVerifiedTransferId(null)
+    setActiveTransferId(null)
+    setLocationDetails(null)
   }
 
   return (
@@ -780,6 +797,15 @@ export default function DecryptPage() {
           mimeType={decryptedResult.mimeType}
           fileSize={decryptedResult.originalSize}
           cameraCheckRequired={cameraCheckRequired}
+          transferId={activeTransferId || undefined}
+          authResults={{
+            secretCode: true,
+            password: true,
+            recipientOtp: Boolean(otpVerifiedTransferId),
+            locationCheck: Boolean(verifiedTransferId),
+            cameraCheck: Boolean(cameraCheckRequired),
+          }}
+          locationInfo={locationDetails}
           onClose={() => setIsSecureViewerOpen(false)}
           onTerminate={handleSessionTerminate}
         />

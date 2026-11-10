@@ -1,5 +1,9 @@
 import { Transfer } from '../models/Transfer'
 import * as s3Service from './s3Service'
+import {
+  decryptRecipientEmail,
+  sendBrevoTransferAccessedEmail,
+} from './otpService'
 
 export interface CleanupResult {
   success: boolean
@@ -74,6 +78,18 @@ export async function consumeAndCleanTransfer(transferId: string): Promise<Clean
 
     // 2. Remove MongoDB transfer metadata only after storage deletion is confirmed
     await Transfer.findByIdAndDelete(locked._id)
+
+    // 3. Dispatch access alert email to verified sender if notifications are enabled
+    if (locked.notificationsEnabled && locked.encryptedSenderEmail) {
+      try {
+        const senderEmail = decryptRecipientEmail(locked.encryptedSenderEmail as any)
+        void sendBrevoTransferAccessedEmail(senderEmail, locked.originalFileName, new Date()).catch((notifErr) => {
+          console.error('[cleanup] Failed to dispatch access notification to sender:', notifErr)
+        })
+      } catch (decErr) {
+        console.error('[cleanup] Failed to decrypt sender email for notification:', decErr)
+      }
+    }
 
     return {
       success: true,

@@ -20,9 +20,9 @@ export const s3Client = new S3Client({
   credentials:
     config.aws.accessKeyId && config.aws.secretAccessKey
       ? {
-          accessKeyId: config.aws.accessKeyId,
-          secretAccessKey: config.aws.secretAccessKey,
-        }
+        accessKeyId: config.aws.accessKeyId,
+        secretAccessKey: config.aws.secretAccessKey,
+      }
       : undefined,
 })
 
@@ -103,6 +103,68 @@ export async function generatePresignedDownloadUrl(objectKey: string): Promise<s
   })
 }
 
+export const SNAPSHOT_URL_EXPIRY_SECONDS = 900 // 15 minutes for authorized dashboard viewing
+
+/**
+ * Checks if a key matches acceptable Encra storage formats
+ */
+function isValidS3Key(key: string): boolean {
+  if (!key || typeof key !== 'string') return false
+  if (/^encra-[a-f0-9-]+\.encra$/.test(key)) return true
+  if (/^encrypted-transfers\/encra-[a-f0-9-]+\.encra$/.test(key)) return true
+  if (/^receiver-snapshots\/snapshot-[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp|bin)$/.test(key)) return true
+  return false
+}
+
+/**
+ * Generates a presigned PUT URL for receiver camera check snapshot upload.
+ */
+export async function generatePresignedSnapshotUploadUrl(
+  transferId: string,
+  contentType: string = 'image/jpeg',
+): Promise<{ uploadUrl: string; snapshotKey: string; expiresIn: number }> {
+  if (!config.aws.bucket) {
+    throw new HttpError(500, 'AWS S3 bucket configuration is missing.')
+  }
+
+  const cleanTransferId = transferId.replace(/[^a-zA-Z0-9_-]/g, '')
+  const snapshotKey = `receiver-snapshots/snapshot-${cleanTransferId}-${randomUUID()}.jpg`
+
+  const command = new PutObjectCommand({
+    Bucket: config.aws.bucket,
+    Key: snapshotKey,
+    ContentType: contentType,
+  })
+
+  const uploadUrl = await getSignedUrl(s3Client, command, {
+    expiresIn: 120, // 2 minutes to complete snapshot upload
+  })
+
+  return {
+    uploadUrl,
+    snapshotKey,
+    expiresIn: 120,
+  }
+}
+
+/**
+ * Generates a presigned GET URL for viewing receiver snapshot in the activity dashboard.
+ */
+export async function generatePresignedSnapshotDownloadUrl(snapshotKey: string): Promise<string> {
+  if (!isValidS3Key(snapshotKey) || !snapshotKey.startsWith('receiver-snapshots/')) {
+    throw new HttpError(400, 'Invalid snapshot key format.')
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: config.aws.bucket,
+    Key: snapshotKey,
+  })
+
+  return getSignedUrl(s3Client, command, {
+    expiresIn: SNAPSHOT_URL_EXPIRY_SECONDS,
+  })
+}
+
 /**
  * Permanently deletes an object and all its versions from S3.
  * Handles both versioned and non-versioned buckets cleanly.
@@ -110,7 +172,7 @@ export async function generatePresignedDownloadUrl(objectKey: string): Promise<s
  * Throws on actual AWS error to permit safe retry tracking.
  */
 export async function deleteS3ObjectPermanently(objectKey: string): Promise<boolean> {
-  if (!/^encra-[a-f0-9-]+\.encra$/.test(objectKey)) {
+  if (!isValidS3Key(objectKey)) {
     return true
   }
 

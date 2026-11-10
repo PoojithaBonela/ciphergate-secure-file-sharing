@@ -27,6 +27,7 @@ import {
   verifyOtpHmac,
   sendBrevoOtpEmail,
   generateOtpAuthToken,
+  verifySenderVerificationToken,
 } from '../services/otpService'
 import { consumeAndCleanTransfer } from '../services/cleanupService'
 import { lookupRateLimiter } from '../middleware/rateLimiter'
@@ -82,6 +83,9 @@ const registerSchema = z
       ),
     accessLevel: z.enum(['standard', 'verified']).default('standard'),
     recipientEmail: z.string().trim().email('Invalid email address format.').optional().nullable(),
+    notificationsEnabled: z.boolean().default(false),
+    notificationEmail: z.string().trim().email('Invalid notification email format.').optional().nullable(),
+    senderVerificationToken: z.string().trim().optional().nullable(),
     locationEnabled: z.boolean().default(false),
     cameraCheckEnabled: z.boolean().default(false),
     location: z
@@ -123,6 +127,23 @@ const registerSchema = z
     {
       message: 'A valid recipient email address is required when Verified access level is selected.',
       path: ['recipientEmail'],
+    },
+  )
+  .refine(
+    (data) => {
+      if (data.notificationsEnabled) {
+        return Boolean(
+          data.notificationEmail &&
+          data.notificationEmail.trim().length > 0 &&
+          data.senderVerificationToken &&
+          data.senderVerificationToken.trim().length > 0,
+        )
+      }
+      return true
+    },
+    {
+      message: 'A verified sender email and verification token are required when Notifications are enabled.',
+      path: ['notificationEmail'],
     },
   )
 
@@ -196,6 +217,9 @@ transfersRouter.post(
         expiresAt,
         accessLevel,
         recipientEmail,
+        notificationsEnabled,
+        notificationEmail,
+        senderVerificationToken,
         locationEnabled,
         location,
         cameraCheckEnabled,
@@ -207,16 +231,26 @@ transfersRouter.post(
       const lookupFingerprint = computeLookupFingerprint(sevenWordCode)
 
       // Check if code is already registered in active state
-      const existing = await Transfer.findOne({ lookupFingerprint }).lean()
+      const existing = await Transfer.findOne({ lookupFingerprint })
       if (existing) {
-        // Clean up orphaned S3 object
-        await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
-        res.status(409).json({
-          status: 'error',
-          message:
-            'This secret code is already in use. Please choose a different 7-word secret code.',
-        })
-        return
+        const isInactive =
+          existing.expiresAt.getTime() <= Date.now() ||
+          ['expired', 'consumed', 'deleted', 'revoked'].includes(existing.status)
+
+        if (isInactive) {
+          // Invalidate old inactive transfer's fingerprint so the phrase can be safely reused
+          existing.lookupFingerprint = null
+          await existing.save().catch(() => {})
+        } else {
+          // Active transfer already holds this code -> Clean up uploaded S3 object and reject
+          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => {})
+          res.status(409).json({
+            status: 'error',
+            message:
+              'This secret code is already in use by an active transfer. Please choose a different 7-word secret code.',
+          })
+          return
+        }
       }
 
       // Encrypt recipient email if Verified access level is enabled
@@ -240,6 +274,43 @@ transfersRouter.post(
           res.status(500).json({
             status: 'error',
             message: 'Failed to securely encrypt recipient email on server.',
+          })
+          return
+        }
+      }
+
+      // Encrypt sender notification email if Notifications are enabled
+      let encryptedSenderEmailPayload = null
+      if (notificationsEnabled) {
+        if (!notificationEmail || !senderVerificationToken) {
+          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
+          res.status(400).json({
+            status: 'error',
+            message:
+              'Sender notification email and verification token are required when notifications are enabled.',
+          })
+          return
+        }
+
+        const isTokenValid = verifySenderVerificationToken(notificationEmail, senderVerificationToken)
+        if (!isTokenValid) {
+          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
+          res.status(403).json({
+            status: 'error',
+            message:
+              'Sender email verification has expired or is invalid. Please verify your email before creating the transfer.',
+          })
+          return
+        }
+
+        try {
+          encryptedSenderEmailPayload = encryptRecipientEmail(notificationEmail)
+        } catch (senderEmailErr) {
+          console.error('Failed to encrypt sender notification email', senderEmailErr)
+          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
+          res.status(500).json({
+            status: 'error',
+            message: 'Failed to securely encrypt sender notification email on server.',
           })
           return
         }
@@ -318,6 +389,8 @@ transfersRouter.post(
         verifiedAccessEnabled: isVerified,
         encryptedRecipientEmail: encryptedRecipientEmailPayload,
         otpState: null,
+        notificationsEnabled: Boolean(notificationsEnabled),
+        encryptedSenderEmail: encryptedSenderEmailPayload,
         cleanupStatus: 'none',
         cleanupAttempts: 0,
       })
@@ -327,16 +400,29 @@ transfersRouter.post(
       } catch (dbError: unknown) {
         const mongoErr = dbError as { code?: number; name?: string }
         if (mongoErr.code === 11000) {
-          // Unique index constraint triggered
-          await deleteS3ObjectPermanently(s3ObjectKey).catch(() => { })
-          res.status(409).json({
-            status: 'error',
-            message:
-              'This secret code is already in use. Please choose a different 7-word secret code.',
-          })
-          return
+          // Check if the collision was with an inactive record that can be safely freed
+          const collision = await Transfer.findOne({ lookupFingerprint })
+          if (
+            collision &&
+            (collision.expiresAt.getTime() <= Date.now() ||
+              ['expired', 'consumed', 'deleted', 'revoked'].includes(collision.status))
+          ) {
+            collision.lookupFingerprint = null
+            await collision.save().catch(() => {})
+            // Retry saving the new transfer
+            await transfer.save()
+          } else {
+            await deleteS3ObjectPermanently(s3ObjectKey).catch(() => {})
+            res.status(409).json({
+              status: 'error',
+              message:
+                'This secret code is already in use by an active transfer. Please choose a different 7-word secret code.',
+            })
+            return
+          }
+        } else {
+          throw dbError
         }
-        throw dbError
       }
 
       res.status(201).json({
@@ -403,12 +489,20 @@ transfersRouter.post(
 
       const now = Date.now()
       const isExpiredTime = transfer.expiresAt.getTime() <= now
-      const isInactiveStatus = ['expired', 'consumed', 'pending_cleanup', 'deleted'].includes(
+      const isInactiveStatus = ['expired', 'consumed', 'pending_cleanup', 'deleted', 'revoked'].includes(
         transfer.status,
       )
 
-      // Reject expired or non-active transfers immediately
+      // Reject expired, revoked, or non-active transfers immediately
       if (isExpiredTime || isInactiveStatus) {
+        if (transfer.status === 'revoked') {
+          res.status(410).json({
+            status: 'error',
+            message: 'This transfer was revoked by the sender and is no longer accessible.',
+          })
+          return
+        }
+
         // Transition to expired if not already marked
         if (transfer.status === 'active' || transfer.status === 'uploaded') {
           transfer.status = 'expired'
@@ -478,10 +572,12 @@ transfersRouter.post(
         })
 
         let radiusKm = 5
+        let locationName = ''
         if (transfer.locationEnabled && transfer.encryptedLocation) {
           try {
             const locConfig = decryptLocationConfig(transfer.encryptedLocation as any)
             radiusKm = locConfig.radiusKm
+            locationName = locConfig.locationName || ''
           } catch (decryptErr) {
             console.error('Failed to decrypt location metadata in lookup:', decryptErr)
           }
@@ -507,6 +603,7 @@ transfersRouter.post(
             locationRequired: Boolean(transfer.locationEnabled),
             cameraCheckRequired: Boolean(transfer.cameraCheckEnabled),
             radiusKm: transfer.locationEnabled ? radiusKm : undefined,
+            locationName: transfer.locationEnabled ? locationName : undefined,
           },
         })
         return
@@ -527,9 +624,11 @@ transfersRouter.post(
         }
 
         let radiusKm = 5
+        let locationName = ''
         try {
           const locConfig = decryptLocationConfig(transfer.encryptedLocation as any)
           radiusKm = locConfig.radiusKm
+          locationName = locConfig.locationName || ''
         } catch (decryptErr) {
           console.error('Failed to decrypt location metadata in lookup:', decryptErr)
         }
@@ -548,6 +647,7 @@ transfersRouter.post(
             locationRequired: true,
             cameraCheckRequired: Boolean(transfer.cameraCheckEnabled),
             radiusKm,
+            locationName,
           },
         })
         return

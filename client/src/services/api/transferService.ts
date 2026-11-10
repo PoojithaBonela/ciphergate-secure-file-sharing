@@ -38,6 +38,9 @@ export interface RegisterTransferParams {
   expiresAt?: string | null
   accessLevel?: 'standard' | 'verified'
   recipientEmail?: string | null
+  notificationsEnabled?: boolean
+  notificationEmail?: string | null
+  senderVerificationToken?: string | null
   locationEnabled?: boolean
   cameraCheckEnabled?: boolean
   location?: {

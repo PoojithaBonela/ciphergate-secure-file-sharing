@@ -17,6 +17,16 @@ import {
 import FloatingCameraPreview from './FloatingCameraPreview'
 import { useFaceGazeMonitor } from '../../hooks/useFaceGazeMonitor'
 import { disposeFaceLandmarker } from '../../services/ai/faceGazeService'
+import {
+  detectDeviceInfo,
+  startActivitySession,
+  uploadReceiverSnapshot,
+  recordActivityEvent,
+  endActivitySession,
+  checkTransferStatus,
+  AuthResults,
+  LocationInfo,
+} from '../../services/api/activityService'
 
 export interface SecureFileViewerProps {
   blob: Blob
@@ -24,8 +34,47 @@ export interface SecureFileViewerProps {
   mimeType: string
   fileSize: number
   cameraCheckRequired?: boolean
+  transferId?: string
+  authResults?: AuthResults
+  locationInfo?: LocationInfo | null
   onClose: () => void
   onTerminate: (reason: string) => void
+}
+
+function captureStreamSnapshot(stream: MediaStream): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video')
+      video.srcObject = stream
+      video.muted = true
+      video.playsInline = true
+      video.onloadedmetadata = () => {
+        video.play().then(() => {
+          setTimeout(() => {
+            try {
+              const canvas = document.createElement('canvas')
+              canvas.width = video.videoWidth || 640
+              canvas.height = video.videoHeight || 480
+              const ctx = canvas.getContext('2d')
+              if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+                resolve(canvas.toDataURL('image/jpeg', 0.85))
+              } else {
+                resolve(null)
+              }
+            } catch {
+              resolve(null)
+            } finally {
+              video.pause()
+              video.srcObject = null
+            }
+          }, 300)
+        }).catch(() => resolve(null))
+      }
+    } catch {
+      resolve(null)
+    }
+  })
 }
 
 function formatBytes(bytes: number): string {
@@ -42,6 +91,9 @@ export default function SecureFileViewer({
   mimeType,
   fileSize,
   cameraCheckRequired = false,
+  transferId,
+  authResults,
+  locationInfo,
   onClose,
   onTerminate,
 }: SecureFileViewerProps) {
@@ -63,6 +115,14 @@ export default function SecureFileViewer({
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const previewVideoRef = useRef<HTMLVideoElement | null>(null)
 
+  // Session activity & telemetry refs
+  const sessionStartTimeRef = useRef<number>(Date.now())
+  const hasReportedStartRef = useRef<boolean>(false)
+  const hasCapturedSnapshotRef = useRef<boolean>(false)
+  const prevLookingAwayRef = useRef<number>(0)
+  const prevMultipleFacesRef = useRef<number>(0)
+  const prevNoFaceRef = useRef<number>(0)
+
   // Centralized single-execution termination routine
   const terminateSession = (reason: string) => {
     if (isTerminatedRef.current) return
@@ -82,6 +142,23 @@ export default function SecureFileViewer({
       objectUrlRef.current = null
     }
     setObjectUrl(null)
+
+    if (transferId) {
+      const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000)
+      void recordActivityEvent({
+        transferId,
+        type: 'monitoring_termination',
+        title: 'Viewing Session Terminated',
+        description: reason,
+        details: { reason, durationSeconds },
+      })
+      void endActivitySession({
+        transferId,
+        outcome: `Session terminated: ${reason}`,
+        terminationReason: reason,
+        durationSeconds,
+      })
+    }
 
     onTerminate(reason)
   }
@@ -113,6 +190,117 @@ export default function SecureFileViewer({
       setHasStartedViewing(true)
     }
   }, [cameraCheckRequired, isInitialFaceReady, hasStartedViewing])
+
+  // Telemetry 1: Report session start when viewing initiates (Triggers Brevo Email 1)
+  useEffect(() => {
+    if (!hasStartedViewing || hasReportedStartRef.current) return
+    hasReportedStartRef.current = true
+    sessionStartTimeRef.current = Date.now()
+
+    if (transferId) {
+      const deviceInfo = detectDeviceInfo()
+      void startActivitySession({
+        transferId,
+        deviceInfo,
+        authResults: authResults || {
+          secretCode: true,
+          password: true,
+          recipientOtp: false,
+          locationCheck: false,
+          cameraCheck: Boolean(cameraCheckRequired),
+        },
+        locationInfo: locationInfo || null,
+      })
+    }
+  }, [hasStartedViewing, transferId, authResults, locationInfo, cameraCheckRequired])
+
+  // Telemetry 2: Capture receiver snapshot if camera is active and upload to S3 receiver-snapshots/
+  useEffect(() => {
+    if (!hasStartedViewing || hasCapturedSnapshotRef.current || !transferId) return
+
+    if (cameraStream) {
+      hasCapturedSnapshotRef.current = true
+      const timer = setTimeout(async () => {
+        try {
+          let dataUrl: string | null = null
+          if (previewVideoRef.current && previewVideoRef.current.readyState >= 2) {
+            const video = previewVideoRef.current
+            const canvas = document.createElement('canvas')
+            canvas.width = video.videoWidth || 640
+            canvas.height = video.videoHeight || 480
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+              dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+            }
+          }
+          if (!dataUrl && cameraStream) {
+            dataUrl = await captureStreamSnapshot(cameraStream)
+          }
+          if (dataUrl) {
+            await uploadReceiverSnapshot(transferId, dataUrl)
+          }
+        } catch (err) {
+          console.warn('[SecureFileViewer] Failed to capture receiver snapshot:', err)
+        }
+      }, 600)
+      return () => clearTimeout(timer)
+    }
+  }, [hasStartedViewing, cameraStream, transferId])
+
+  // Telemetry 3: Forward monitoring warning counters in real-time to activity log
+  useEffect(() => {
+    if (!hasStartedViewing || !transferId) return
+
+    if (lookingAwayWarnings > prevLookingAwayRef.current) {
+      prevLookingAwayRef.current = lookingAwayWarnings
+      void recordActivityEvent({
+        transferId,
+        type: 'gaze_warning',
+        title: `Looking Away Warning (${lookingAwayWarnings}/3)`,
+        description: 'Recipient looked away from document display area.',
+        details: { count: lookingAwayWarnings, max: 3 },
+      })
+    }
+
+    if (multipleFacesWarnings > prevMultipleFacesRef.current) {
+      prevMultipleFacesRef.current = multipleFacesWarnings
+      void recordActivityEvent({
+        transferId,
+        type: 'face_warning',
+        title: `Multiple Faces Warning (${multipleFacesWarnings}/3)`,
+        description: 'Multiple faces detected in front of screen during secure viewing.',
+        details: { count: multipleFacesWarnings, max: 3 },
+      })
+    }
+
+    if (noFaceWarnings > prevNoFaceRef.current) {
+      prevNoFaceRef.current = noFaceWarnings
+      void recordActivityEvent({
+        transferId,
+        type: 'no_face_warning',
+        title: `No Face Detected Warning (${noFaceWarnings}/3)`,
+        description: 'Recipient face temporarily lost from camera frame.',
+        details: { count: noFaceWarnings, max: 3 },
+      })
+    }
+  }, [hasStartedViewing, lookingAwayWarnings, multipleFacesWarnings, noFaceWarnings, transferId])
+
+  // Telemetry 4: Live Access Revocation Polling (every 3 seconds)
+  useEffect(() => {
+    if (!hasStartedViewing || !transferId) return
+
+    const intervalId = setInterval(async () => {
+      if (isTerminatedRef.current) return
+      const res = await checkTransferStatus(transferId)
+      if (res.revoked || res.status === 'revoked') {
+        clearInterval(intervalId)
+        terminateSession('Access has been revoked by the sender. Encrypted file destroyed.')
+      }
+    }, 3000)
+
+    return () => clearInterval(intervalId)
+  }, [hasStartedViewing, transferId])
 
   // Bind live stream to preview video during stabilization phase
   useEffect(() => {
@@ -151,6 +339,14 @@ export default function SecureFileViewer({
 
   const handleClose = () => {
     stopCameraTracks()
+    if (transferId && !isTerminatedRef.current) {
+      const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000)
+      void endActivitySession({
+        transferId,
+        outcome: 'Viewing session completed successfully',
+        durationSeconds,
+      })
+    }
     onClose()
   }
 
@@ -260,12 +456,28 @@ export default function SecureFileViewer({
     // 1. Tab switching & browser minimization monitoring
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
+        if (transferId) {
+          void recordActivityEvent({
+            transferId,
+            type: 'tab_switch',
+            title: 'Tab Switch / Browser Minimized',
+            description: 'Recipient switched browser tab or minimized viewing window.',
+          })
+        }
         terminateSession('Tab switch or browser minimized')
       }
     }
 
     // 2. Window focus loss monitoring
     const handleWindowBlur = () => {
+      if (transferId) {
+        void recordActivityEvent({
+          transferId,
+          type: 'window_blur',
+          title: 'Window Focus Lost',
+          description: 'Recipient switched to an external application or window lost focus.',
+        })
+      }
       terminateSession('Window lost focus (external application or switch detected)')
     }
 
@@ -277,6 +489,14 @@ export default function SecureFileViewer({
     // 4. Print action suppression & detection
     const handleBeforePrint = (e: Event) => {
       e.preventDefault()
+      if (transferId) {
+        void recordActivityEvent({
+          transferId,
+          type: 'print_attempt',
+          title: 'Print Attempt Intercepted',
+          description: 'Recipient attempted to invoke document print dialog.',
+        })
+      }
       terminateSession('Print action detected')
     }
 

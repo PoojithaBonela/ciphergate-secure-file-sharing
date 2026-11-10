@@ -43,6 +43,12 @@ type ProcessingStage =
   | 'completed'
   | 'upload_error'
 
+function getDefaultExpiryString(): string {
+  const d = new Date(Date.now() + 24 * 60 * 60 * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function EncryptPage() {
   // State management
   const [file, setFile] = useState<File | null>(null)
@@ -58,7 +64,7 @@ export default function EncryptPage() {
     verifiedEmail: '',
     verifiedPhone: '',
     expiryEnabled: false,
-    expiryDate: '',
+    expiryDate: getDefaultExpiryString(),
     locationEnabled: false,
     locationQuery: '',
     radiusKm: 5,
@@ -70,6 +76,8 @@ export default function EncryptPage() {
     notificationsEnabled: false,
     notificationType: 'email',
     notificationTarget: '',
+    senderEmailVerified: false,
+    senderVerificationToken: '',
   })
 
   // Real client-side encryption, S3 upload & MongoDB registration states
@@ -94,9 +102,30 @@ export default function EncryptPage() {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(securityControls.verifiedEmail.trim())
   }, [securityControls.accessLevel, securityControls.verifiedEmail])
 
+  const isNotificationValid = useMemo(() => {
+    if (!securityControls.notificationsEnabled) return true
+    return (
+      Boolean(securityControls.senderEmailVerified) &&
+      Boolean(securityControls.senderVerificationToken) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(securityControls.notificationTarget.trim())
+    )
+  }, [
+    securityControls.notificationsEnabled,
+    securityControls.senderEmailVerified,
+    securityControls.senderVerificationToken,
+    securityControls.notificationTarget,
+  ])
+
   const isReadyToEncrypt = useMemo(() => {
-    return Boolean(file) && isPasswordValid && !fileError && isCodeValid && isVerifiedValid
-  }, [file, isPasswordValid, fileError, isCodeValid, isVerifiedValid])
+    return (
+      Boolean(file) &&
+      isPasswordValid &&
+      !fileError &&
+      isCodeValid &&
+      isVerifiedValid &&
+      isNotificationValid
+    )
+  }, [file, isPasswordValid, fileError, isCodeValid, isVerifiedValid, isNotificationValid])
 
   const isSubmitting = [
     'encrypting',
@@ -152,6 +181,13 @@ export default function EncryptPage() {
           securityControls.accessLevel === 'verified'
             ? securityControls.verifiedEmail.trim()
             : null,
+        notificationsEnabled: securityControls.notificationsEnabled,
+        notificationEmail: securityControls.notificationsEnabled
+          ? securityControls.notificationTarget.trim()
+          : null,
+        senderVerificationToken: securityControls.notificationsEnabled
+          ? securityControls.senderVerificationToken
+          : null,
         locationEnabled: securityControls.locationEnabled,
         cameraCheckEnabled: securityControls.cameraCheckEnabled,
         location: securityControls.locationEnabled

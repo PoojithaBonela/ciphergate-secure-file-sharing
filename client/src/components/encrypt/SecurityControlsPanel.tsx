@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import {
   ShieldCheck,
   Clock3,
@@ -10,10 +10,13 @@ import {
   Lock,
   Info,
   Mail,
-  MessageSquare,
   AlertCircle,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react'
 import InteractiveLocationPicker from './InteractiveLocationPicker'
+import SenderOtpVerificationModal from './SenderOtpVerificationModal'
+import { sendSenderOtp } from '@/services/api/notificationService'
 
 export interface SecurityControlsState {
   accessLevel: 'standard' | 'verified'
@@ -32,8 +35,10 @@ export interface SecurityControlsState {
   cameraCheckEnabled: boolean
   cameraConsentChecked: boolean
   notificationsEnabled: boolean
-  notificationType: 'email' | 'whatsapp'
+  notificationType: 'email'
   notificationTarget: string
+  senderEmailVerified?: boolean
+  senderVerificationToken?: string
 }
 
 export interface SecurityControlsPanelProps {
@@ -62,6 +67,13 @@ export default function SecurityControlsPanel({
   const [showAesTooltip, setShowAesTooltip] = useState(false)
   const [emailTouched, setEmailTouched] = useState(false)
   const [secretCodeTouched, setSecretCodeTouched] = useState(false)
+
+  // Sender Notification Email Verification States
+  const [isSenderOtpModalOpen, setIsSenderOtpModalOpen] = useState(false)
+  const [isSendingSenderOtp, setIsSendingSenderOtp] = useState(false)
+  const [senderOtpError, setSenderOtpError] = useState<string | null>(null)
+  const [senderMaskedEmail, setSenderMaskedEmail] = useState('')
+  const [senderEmailTouched, setSenderEmailTouched] = useState(false)
 
   // 7-Word Secret Code validation
   const secretCodeWordCount = useMemo(() => {
@@ -133,23 +145,56 @@ export default function SecurityControlsPanel({
     return `Expires in: ${hours} hour${hours !== 1 ? 's' : ''}, ${minutes} minute${minutes !== 1 ? 's' : ''}`
   }, [controls.expiryEnabled, controls.expiryDate])
 
-  // Email validation
+  // Email validation (Recipient verified access)
   const isEmailValid = useMemo(() => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(controls.verifiedEmail.trim())
   }, [controls.verifiedEmail])
 
+  // Email validation (Sender notifications)
+  const isSenderEmailValid = useMemo(() => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(controls.notificationTarget.trim())
+  }, [controls.notificationTarget])
+
+  const handleInitiateSenderVerification = async () => {
+    if (!isSenderEmailValid || isSendingSenderOtp) return
+    setIsSendingSenderOtp(true)
+    setSenderOtpError(null)
+
+    try {
+      const res = await sendSenderOtp(controls.notificationTarget.trim())
+      setSenderMaskedEmail(res.maskedEmail)
+      setIsSenderOtpModalOpen(true)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send verification code.'
+      setSenderOtpError(msg)
+    } finally {
+      setIsSendingSenderOtp(false)
+    }
+  }
+
+  const handleSenderOtpSuccess = (token: string) => {
+    onChange((prev) => ({
+      ...prev,
+      senderEmailVerified: true,
+      senderVerificationToken: token,
+    }))
+    setIsSenderOtpModalOpen(false)
+  }
+
   // Helper toggle
   const toggleRow = (row: 'expiry' | 'location' | 'camera' | 'notifications') => {
-    setExpandedRow((curr) => {
-      const next = curr === row ? null : row
-      if (row === 'location' && next === 'location') {
+    const isOpening = expandedRow !== row
+    setExpandedRow(isOpening ? row : null)
+
+    if (isOpening) {
+      if (row === 'location' && !controls.locationEnabled) {
         onChange((prev) => ({ ...prev, locationEnabled: true }))
-      }
-      if (row === 'camera' && next === 'camera') {
+      } else if (row === 'camera' && !controls.cameraCheckEnabled) {
         onChange((prev) => ({ ...prev, cameraCheckEnabled: true }))
+      } else if (row === 'notifications' && !controls.notificationsEnabled) {
+        onChange((prev) => ({ ...prev, notificationsEnabled: true, notificationType: 'email' }))
       }
-      return next
-    })
+    }
   }
 
   // Set quick expiry presets
@@ -160,17 +205,6 @@ export default function SecurityControlsPanel({
       expiryDate: toLocalDateTimeString(futureDate),
     }))
   }
-
-  // Ensure default expiry is set if empty
-  useEffect(() => {
-    if (!controls.expiryDate) {
-      const default24h = new Date(Date.now() + 24 * 60 * 60 * 1000)
-      onChange((prev) => ({
-        ...prev,
-        expiryDate: toLocalDateTimeString(default24h),
-      }))
-    }
-  }, [controls.expiryDate, onChange])
 
   return (
     <div className="w-full rounded-2xl bg-[#0A1220]/80 backdrop-blur-sm border border-[#202B3D] p-6 sm:p-8 mt-8">
@@ -816,14 +850,16 @@ export default function SecurityControlsPanel({
               <span
                 className={`text-xs font-semibold px-2.5 py-1 rounded-md ${
                   controls.notificationsEnabled
-                    ? 'bg-[#2997FF]/10 text-[#2997FF] border border-[#2997FF]/25'
+                    ? controls.senderEmailVerified
+                      ? 'bg-teal-500/10 text-teal-400 border border-teal-500/25'
+                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
                     : 'text-[#8CA4C5]'
                 }`}
               >
                 {controls.notificationsEnabled
-                  ? controls.notificationType === 'email'
-                    ? 'Email Alerts'
-                    : 'WhatsApp Alerts'
+                  ? controls.senderEmailVerified
+                    ? 'Email Alerts (Verified)'
+                    : 'Email Alerts (Unverified)'
                   : 'Off'}
               </span>
 
@@ -844,68 +880,133 @@ export default function SecurityControlsPanel({
 
           {expandedRow === 'notifications' && controls.notificationsEnabled && (
             <div className="mt-4 p-4 sm:p-5 rounded-xl bg-[#050913]/90 border border-[#202B3D] space-y-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold text-[#8CA4C5]">Channel:</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChange((prev) => ({ ...prev, notificationType: 'email' }))
-                  }
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    controls.notificationType === 'email'
-                      ? 'bg-[#2997FF]/20 text-[#2997FF] border-[#2997FF]/50'
-                      : 'bg-[#0A1220] text-[#A1ADBF] border-[#202B3D] hover:bg-[#111E30]'
-                  }`}
-                >
-                  <Mail className="w-3.5 h-3.5" />
-                  Email
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChange((prev) => ({
-                      ...prev,
-                      notificationType: 'whatsapp',
-                    }))
-                  }
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    controls.notificationType === 'whatsapp'
-                      ? 'bg-[#2997FF]/20 text-[#2997FF] border-[#2997FF]/50'
-                      : 'bg-[#0A1220] text-[#A1ADBF] border-[#202B3D] hover:bg-[#111E30]'
-                  }`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  WhatsApp
-                </button>
-              </div>
-
               <div>
-                <label className="block text-xs font-semibold text-[#8CA4C5] mb-1.5">
-                  {controls.notificationType === 'email'
-                    ? "Sender's email address (Your email)"
-                    : "Sender's WhatsApp number (Your WhatsApp number)"}
-                </label>
-                <input
-                  type={controls.notificationType === 'email' ? 'email' : 'tel'}
-                  value={controls.notificationTarget}
-                  onChange={(e) =>
-                    onChange((prev) => ({
-                      ...prev,
-                      notificationTarget: e.target.value,
-                    }))
-                  }
-                  placeholder={
-                    controls.notificationType === 'email'
-                      ? 'you@example.com'
-                      : '+1 (555) 019-2834'
-                  }
-                  className="w-full px-3 py-2 rounded-lg bg-[#0A1220] border border-[#202B3D] text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs focus:outline-none focus:border-[#2997FF]"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="encra-sender-notification-email"
+                    className="flex items-center gap-2 text-xs font-semibold text-[#F5F7FA]"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-[#2997FF]" />
+                    <span>Sender's Email Address (Your Email)</span>
+                    <span className="text-[#2997FF]">*</span>
+                  </label>
+
+                  {controls.senderEmailVerified ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-teal-500/15 border border-teal-500/30 text-teal-400 text-[11px] font-semibold">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Verified
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-amber-400/90">
+                      Verification Required
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <input
+                    id="encra-sender-notification-email"
+                    type="email"
+                    required
+                    value={controls.notificationTarget}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      onChange((prev) => ({
+                        ...prev,
+                        notificationTarget: val,
+                        notificationType: 'email',
+                        // Automatically reset verification if email is edited
+                        senderEmailVerified: false,
+                        senderVerificationToken: '',
+                      }))
+                    }}
+                    onBlur={() => setSenderEmailTouched(true)}
+                    placeholder="you@example.com"
+                    className={`flex-1 px-3.5 py-2.5 rounded-lg bg-[#0A1220] border text-[#F5F7FA] placeholder-[#8CA4C5]/50 text-xs sm:text-sm focus:outline-none transition-colors ${
+                      controls.senderEmailVerified
+                        ? 'border-teal-500/60 focus:border-teal-400'
+                        : senderEmailTouched && controls.notificationTarget && !isSenderEmailValid
+                          ? 'border-rose-500/80 focus:border-rose-500'
+                          : 'border-[#202B3D] focus:border-[#2997FF]'
+                    }`}
+                  />
+
+                  {!controls.senderEmailVerified ? (
+                    <button
+                      type="button"
+                      onClick={handleInitiateSenderVerification}
+                      disabled={!isSenderEmailValid || isSendingSenderOtp}
+                      className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                        isSenderEmailValid && !isSendingSenderOtp
+                          ? 'bg-gradient-to-r from-[#2997FF] to-[#0070F3] hover:from-[#38A0FF] hover:to-[#0060DF] text-white shadow-[0_0_15px_rgba(41,151,255,0.3)] active:scale-[0.98] cursor-pointer'
+                          : 'bg-[#202B3D]/70 text-[#8CA4C5]/60 border border-[#202B3D] cursor-not-allowed'
+                      }`}
+                    >
+                      {isSendingSenderOtp ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Sending Code...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Verify Email</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange((prev) => ({
+                          ...prev,
+                          senderEmailVerified: false,
+                          senderVerificationToken: '',
+                        }))
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#0A1220] hover:bg-[#111E30] border border-[#202B3D] text-[#8CA4C5] hover:text-[#F5F7FA] text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      Change Email
+                    </button>
+                  )}
+                </div>
+
+                {/* Validation and Status Feedback */}
+                {senderOtpError && (
+                  <p className="mt-2 text-[11px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    {senderOtpError}
+                  </p>
+                )}
+
+                {senderEmailTouched && controls.notificationTarget && !isSenderEmailValid && (
+                  <p className="mt-2 text-[11px] text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    Please enter a valid email address (e.g. you@example.com).
+                  </p>
+                )}
+
+                {controls.senderEmailVerified && (
+                  <p className="mt-2 text-[11px] text-teal-400 flex items-center gap-1 font-medium">
+                    <ShieldCheck className="w-3 h-3 shrink-0" />
+                    Sender email verified. You will receive an email alert whenever this file is decrypted.
+                  </p>
+                )}
+
+                {!controls.senderEmailVerified && isSenderEmailValid && (
+                  <p className="mt-2 text-[11px] text-amber-400/90 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 shrink-0" />
+                    Click "Verify Email" to receive an OTP and confirm ownership before continuing.
+                  </p>
+                )}
               </div>
 
-              <p className="text-[11px] text-[#8CA4C5] italic">
-                Note: Alerts will be sent to your email or WhatsApp whenever your file is accessed or decrypted.
-              </p>
+              <div className="p-3 rounded-lg bg-[#2997FF]/5 border border-[#2997FF]/15 text-[11px] text-[#8CA4C5] flex items-start gap-2">
+                <Info className="w-3.5 h-3.5 text-[#2997FF] shrink-0 mt-0.5" />
+                <span>
+                  Your email is encrypted at rest using AES-256-GCM. We send a secure real-time notification alert to this address as soon as your recipient decrypts and accesses the file.
+                </span>
+              </div>
             </div>
           )}
         </div>
@@ -961,6 +1062,15 @@ export default function SecurityControlsPanel({
           </button>
         </div>
       </div>
+
+      {/* Sender Email OTP Verification Modal */}
+      <SenderOtpVerificationModal
+        isOpen={isSenderOtpModalOpen}
+        email={controls.notificationTarget.trim()}
+        maskedEmail={senderMaskedEmail}
+        onClose={() => setIsSenderOtpModalOpen(false)}
+        onSuccess={handleSenderOtpSuccess}
+      />
     </div>
   )
 }

@@ -8,6 +8,7 @@ export type TransferStatus =
   | 'expired'
   | 'pending_cleanup'
   | 'deleted'
+  | 'revoked'
 
 export type CleanupStatus =
   | 'none'
@@ -51,6 +52,13 @@ export interface ITransfer extends Document {
     attempts: number
     lastSentAt: Date
     verified: boolean
+  } | null
+  notificationsEnabled: boolean
+  encryptedSenderEmail?: {
+    version: number
+    iv: string
+    authTag: string
+    ciphertext: string
   } | null
   createdAt: Date
   expiresAt: Date
@@ -106,7 +114,7 @@ const transferSchema = new Schema<ITransfer>(
     status: {
       type: String,
       required: true,
-      enum: ['active', 'uploaded', 'consumed', 'expired', 'pending_cleanup', 'deleted'],
+      enum: ['active', 'uploaded', 'consumed', 'expired', 'pending_cleanup', 'deleted', 'revoked'],
       default: 'active',
       index: true,
     },
@@ -162,6 +170,20 @@ const transferSchema = new Schema<ITransfer>(
         attempts: { type: Number, default: 0 },
         lastSentAt: { type: Date, required: true },
         verified: { type: Boolean, default: false },
+      },
+      default: null,
+    },
+    notificationsEnabled: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+    encryptedSenderEmail: {
+      type: {
+        version: { type: Number, default: 1 },
+        iv: { type: String, required: true },
+        authTag: { type: String, required: true },
+        ciphertext: { type: String, required: true },
       },
       default: null,
     },

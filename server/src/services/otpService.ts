@@ -306,3 +306,291 @@ export function verifyOtpAuthToken(transferId: string, token: string): boolean {
   }
 }
 
+const SENDER_TOKEN_MAX_AGE_MS = 60 * 60 * 1000 // 1 hour
+
+/**
+ * Hashes a sender notification OTP bound strictly to the sender's email.
+ * Distinct from recipient transfer OTP hashes.
+ */
+export function hashSenderOtp(email: string, otp: string): string {
+  const secret = config.emailSecret || config.locationSecret || config.lookupSecret
+  const normalized = email.trim().toLowerCase()
+  return createHmac('sha256', secret)
+    .update(`sender-otp:${normalized}:${otp}`)
+    .digest('hex')
+}
+
+/**
+ * Constant-time comparison for sender notification OTP verification.
+ */
+export function verifySenderOtpHmac(email: string, candidateOtp: string, storedHash: string): boolean {
+  if (!candidateOtp || !storedHash || candidateOtp.length !== 6) {
+    return false
+  }
+
+  const candidateHash = hashSenderOtp(email, candidateOtp)
+  const candidateBuf = Buffer.from(candidateHash, 'hex')
+  const storedBuf = Buffer.from(storedHash, 'hex')
+
+  if (candidateBuf.length !== storedBuf.length) {
+    return false
+  }
+
+  return timingSafeEqual(candidateBuf, storedBuf)
+}
+
+/**
+ * Generates a signed cryptographic token proving the sender's email was verified via OTP.
+ * Valid for 1 hour so the sender can finish encrypting and uploading their transfer.
+ */
+export function generateSenderVerificationToken(email: string): string {
+  const normalized = email.trim().toLowerCase()
+  const timestamp = Date.now().toString()
+  const nonce = randomBytes(16).toString('hex')
+  const payload = `${normalized}:${timestamp}:${nonce}`
+  const secret = config.emailSecret || config.locationSecret || config.lookupSecret
+  const signature = createHmac('sha256', secret).update(`sender-verify:${payload}`).digest('hex')
+  return Buffer.from(JSON.stringify({ payload, signature })).toString('base64url')
+}
+
+/**
+ * Verifies that a sender verification token is valid, matches the sender email,
+ * and has not expired.
+ */
+export function verifySenderVerificationToken(email: string, token: string): boolean {
+  try {
+    const decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
+    const { payload, signature } = decoded
+    if (typeof payload !== 'string' || typeof signature !== 'string') return false
+
+    const [tokenEmail, timestampStr] = payload.split(':')
+    if (tokenEmail !== email.trim().toLowerCase()) return false
+
+    const timestamp = parseInt(timestampStr, 10)
+    if (isNaN(timestamp) || Date.now() - timestamp > SENDER_TOKEN_MAX_AGE_MS) {
+      return false
+    }
+
+    const secret = config.emailSecret || config.locationSecret || config.lookupSecret
+    const expectedSig = createHmac('sha256', secret).update(`sender-verify:${payload}`).digest('hex')
+
+    const sigBuf = Buffer.from(signature, 'hex')
+    const expBuf = Buffer.from(expectedSig, 'hex')
+    if (sigBuf.length !== expBuf.length) return false
+
+    return timingSafeEqual(sigBuf, expBuf)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Dispatches a 6-digit verification code to the sender's email address via Brevo.
+ */
+export async function sendBrevoSenderOtpEmail(
+  senderEmail: string,
+  otp: string,
+): Promise<{ success: boolean; error?: string }> {
+  const apiKey = config.brevo.apiKey
+  if (!apiKey) {
+    console.error('[Brevo] BREVO_API_KEY is not configured.')
+    return { success: false, error: 'Brevo API key is not configured.' }
+  }
+
+  const subject = 'Verify your email for Encra Notifications'
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Verify your email for Encra Notifications</title>
+</head>
+<body style="margin: 0; padding: 32px 16px; background-color: #050913; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #F5F7FA;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #0A1220; border: 1px solid #202B3D; border-radius: 16px; padding: 36px 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; color: #F5F7FA;">
+        ENCRA <span style="color: #2997FF; font-weight: 400;">3.0</span>
+      </h1>
+      <p style="margin: 6px 0 0; font-size: 12px; color: #8CA4C5; text-transform: uppercase; letter-spacing: 1.5px;">
+        Sender Notification Verification
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #202B3D; padding-top: 24px; margin-bottom: 24px;">
+      <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 600; color: #F5F7FA;">
+        Verify Your Notification Email
+      </h2>
+      <p style="margin: 0 0 24px; font-size: 14px; line-height: 1.5; color: #A1ADBF;">
+        Enter this 6-digit one-time code to confirm your email address. Once verified, Encra will send you an alert whenever your file is accessed and decrypted:
+      </p>
+
+      <div style="text-align: center; margin: 28px 0; background: #050913; border: 1px solid #2997FF; border-radius: 12px; padding: 20px;">
+        <span style="font-family: 'Courier New', Courier, monospace; font-size: 38px; font-weight: 700; letter-spacing: 12px; color: #2997FF; padding-left: 12px;">
+          ${otp}
+        </span>
+      </div>
+
+      <div style="background-color: rgba(41, 151, 255, 0.08); border-left: 3px solid #2997FF; padding: 12px 16px; border-radius: 4px; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 13px; color: #8CA4C5;">
+          ⏱ <strong>Valid for 60 seconds only.</strong> Do not share this code with anyone.
+        </p>
+      </div>
+
+      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #62758D;">
+        If you did not request this verification on Encra, you can safely ignore this email.
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #202B3D; padding-top: 18px; text-align: center;">
+      <p style="margin: 0; font-size: 11px; color: #4B5E76;">
+        Encra End-to-End Encrypted File Protection • Client-side Zero Knowledge
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `
+
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          name: config.brevo.senderName || 'Encra',
+          email: config.brevo.senderEmail,
+        },
+        to: [
+          {
+            email: senderEmail,
+          },
+        ],
+        subject,
+        htmlContent,
+      }),
+    })
+
+    if (!response.ok) {
+      const errBody = await response.text()
+      console.error(`[Brevo] Failed to send sender OTP email (HTTP ${response.status}):`, errBody)
+      return { success: false, error: `Brevo email dispatch failed (HTTP ${response.status})` }
+    }
+
+    return { success: true }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Brevo network error'
+    console.error('[Brevo] Network error dispatching sender OTP:', message)
+    return { success: false, error: message }
+  }
+}
+
+/**
+ * Dispatches an access notification email to the verified sender when their file is decrypted.
+ */
+export async function sendBrevoTransferAccessedEmail(
+  senderEmail: string,
+  originalFileName: string,
+  accessedAt: Date,
+): Promise<{ success: boolean; error?: string }> {
+  const apiKey = config.brevo.apiKey
+  if (!apiKey) {
+    return { success: false, error: 'Brevo API key is not configured.' }
+  }
+
+  const subject = `Your encrypted file "${originalFileName}" was accessed`
+  const formattedTime = accessedAt.toUTCString()
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Your encrypted file was accessed</title>
+</head>
+<body style="margin: 0; padding: 32px 16px; background-color: #050913; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #F5F7FA;">
+  <div style="max-width: 520px; margin: 0 auto; background-color: #0A1220; border: 1px solid #202B3D; border-radius: 16px; padding: 36px 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; color: #F5F7FA;">
+        ENCRA <span style="color: #2997FF; font-weight: 400;">3.0</span>
+      </h1>
+      <p style="margin: 6px 0 0; font-size: 12px; color: #8CA4C5; text-transform: uppercase; letter-spacing: 1.5px;">
+        Access Notification Alert
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #202B3D; padding-top: 24px; margin-bottom: 24px;">
+      <div style="display: inline-block; padding: 6px 12px; border-radius: 8px; background: rgba(41, 151, 255, 0.12); border: 1px solid rgba(41, 151, 255, 0.3); color: #2997FF; font-size: 12px; font-weight: 600; margin-bottom: 16px;">
+        ✓ File Successfully Decrypted
+      </div>
+
+      <h2 style="margin: 0 0 12px; font-size: 18px; font-weight: 600; color: #F5F7FA;">
+        Transfer Access Confirmed
+      </h2>
+
+      <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: #A1ADBF;">
+        Your recipient has entered the correct secret credentials and successfully decrypted your protected file:
+      </p>
+
+      <div style="background: #050913; border: 1px solid #202B3D; border-radius: 10px; padding: 16px; margin: 20px 0;">
+        <p style="margin: 0 0 8px; font-size: 13px; color: #8CA4C5;">File Name: <strong style="color: #F5F7FA;">${escapeHtml(originalFileName)}</strong></p>
+        <p style="margin: 0; font-size: 13px; color: #8CA4C5;">Accessed Time: <span style="color: #F5F7FA;">${formattedTime}</span></p>
+      </div>
+
+      <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #62758D;">
+        In accordance with Encra Zero-Knowledge protocol, the encrypted package in cloud storage has been consumed and deleted.
+      </p>
+    </div>
+
+    <div style="border-top: 1px solid #202B3D; padding-top: 18px; text-align: center;">
+      <p style="margin: 0; font-size: 11px; color: #4B5E76;">
+        Encra End-to-End Encrypted File Protection • Client-side Zero Knowledge
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+  `
+
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          name: config.brevo.senderName || 'Encra',
+          email: config.brevo.senderEmail,
+        },
+        to: [
+          {
+            email: senderEmail,
+          },
+        ],
+        subject,
+        htmlContent,
+      }),
+    })
+
+    if (!response.ok) {
+      const errBody = await response.text()
+      console.error(`[Brevo] Failed to send access notification email (HTTP ${response.status}):`, errBody)
+      return { success: false, error: `Brevo email dispatch failed (HTTP ${response.status})` }
+    }
+
+    return { success: true }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Brevo network error'
+    console.error('[Brevo] Network error dispatching access notification:', message)
+    return { success: false, error: message }
+  }
+}
+
+
